@@ -1,0 +1,34 @@
+ReviewOrchestratorService (top-level coordinator)
+  ├── depends on → FileParserService
+  ├── depends on → StaticAnalyzerService
+  ├── depends on → SecurityAnalyzerService
+  ├── depends on → ComplexityCalculatorService
+  ├── depends on → StyleCheckerService
+  ├── depends on → RagCommunicatorService
+  └── depends on → ReportGeneratorService
+
+ReportGeneratorService
+  ├── depends on → SessionManagerService
+  └── depends on → All Models
+
+RagCommunicatorService
+  ├── depends on → axios
+  └── depends on → rag.config.js
+
+StaticAnalyzerService
+  ├── depends on → FileParserService (for AST)
+  └── depends on → Issue Model
+
+SecurityAnalyzerService
+  ├── depends on → FileParserService (for parsed code)
+  └── depends on → Issue Model
+
+Build Order (bottom-up):
+1. Models (no dependencies)
+2. Utilities (minimal dependencies)
+3. SessionManagerService
+4. FileParserService
+5. Individual Analyzers (depend on FileParser)
+6. RagCommunicatorService
+7. ReportGeneratorService
+8. ReviewOrchestratorService (depends on everything)

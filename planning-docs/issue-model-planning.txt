@@ -1,0 +1,24 @@
+Fields Needed:
+- issueId: string
+- category: string (security | quality | complexity | style)
+- severity: string (critical | high | medium | low)
+- type: string (SQL_INJECTION, WEAK_CRYPTO, etc.)
+- line: number
+- title: string
+- description: string
+- codeSnippet: string
+- fix: object { description, codeExample, estimatedTime }
+- aiExplanation: string
+- sources: array
+
+Methods Needed:
+- isCritical(): boolean
+- getSortPriority(): number
+- validate(): boolean
+- toJSON(): object
+
+Validation Rules:
+- category must be valid value
+- severity must be valid value
+- line must be positive number
+- title cannot be empty

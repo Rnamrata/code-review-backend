@@ -1,0 +1,30 @@
+ields Needed:
+- sessionId: string (UUID)
+- ragSessionId: string (UUID from Python RAG)
+- filename: string
+- language: string
+- state: string (created | uploaded | analyzing | completed | error)
+- createdAt: Date
+- expiresAt: Date
+- filePath: string
+- fileSize: number
+- parsingResults: object
+- analysisResults: object
+- finalReport: object
+- chatHistory: array
+
+Methods Needed:
+- validate(): boolean
+- isExpired(): boolean
+- canBeDeleted(): boolean
+- updateState(newState): void
+- toJSON(): object
+- static fromJSON(json): Session
+- static create(fileInfo): Session
+
+Validation Rules:
+- sessionId must be valid UUID
+- filename cannot be empty
+- language must be in supported list
+- state must be valid state value
+- dates must be valid Date objects

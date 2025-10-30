@@ -23,13 +23,15 @@
   "license": "MIT",
   "author": "Namrata Roy <roy.namrata,ces@gmail.com>",
   "type": "commonjs",
-  "main": "src/server.js",
+  "main": "dist/server.ts",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "node dist/server.js",
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "tsc",
+    "watch": "tsc --watch",
     "test": "echo \"Tests coming soon\" && exit 0"
   },
   "engines": {
@@ -38,8 +40,26 @@
   },
   "date": "Oct-30-2025",
   "dependencies": {
+    "axios": "^1.13.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "uuid": "^13.0.0",
+    "winston": "^3.18.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
+    "@types/helmet": "^0.0.48",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.9.2",
+    "@types/uuid": "^10.0.0",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,23 @@
+Fields Needed:
+- reportId: string
+- sessionId: string
+- overallGrade: string (A-F)
+- overallScore: number (0-100)
+- categoryScores: object
+- detailedIssues: object { security, quality, complexity, style }
+- recommendations: object
+- metrics: object
+
+Methods Needed:
+- calculateOverallScore(): number
+- getIssuesBySeverity(severity): array
+- getIssuesByCategory(category): array
+- getPrioritizedIssues(): array
+- validate(): boolean
+- toJSON(): object
+
+Scoring Algorithm:
+- Security weight: 35%
+- Quality weight: 30%
+- Complexity weight: 20%
+- Style weight: 15%
