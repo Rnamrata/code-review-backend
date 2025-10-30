@@ -1,30 +1,54 @@
-ields Needed:
-- sessionId: string (UUID)
-- ragSessionId: string (UUID from Python RAG)
-- filename: string
-- language: string
-- state: string (created | uploaded | analyzing | completed | error)
-- createdAt: Date
-- expiresAt: Date
-- filePath: string
-- fileSize: number
-- parsingResults: object
-- analysisResults: object
-- finalReport: object
-- chatHistory: array
+Identifiers:
+- sessionId (UUID)
+- ragSessionId (UUID from Python RAG)
 
-Methods Needed:
-- validate(): boolean
-- isExpired(): boolean
-- canBeDeleted(): boolean
-- updateState(newState): void
-- toJSON(): object
-- static fromJSON(json): Session
-- static create(fileInfo): Session
+File Information:
+- originalFilename
+- savedFilename
+- filePath
+- fileSize
+- language
+- encoding
 
-Validation Rules:
-- sessionId must be valid UUID
-- filename cannot be empty
-- language must be in supported list
-- state must be valid state value
-- dates must be valid Date objects
+Timestamps:
+- createdAt
+- uploadedAt
+- analysisStartedAt
+- analysisCompletedAt
+- lastActivityAt
+- expiresAt
+
+State Management:
+- currentState (created, uploaded, analyzing, completed, error)
+- progress (percentage, current step)
+
+Results:
+- parsingResults
+- staticAnalysisResults
+- securityAnalysisResults
+- complexityResults
+- styleResults
+- ragInsights
+- finalReport
+
+Chat History:
+- chatMessages (array)
+
+Metadata:
+- ipAddress
+- userAgent
+- analysisVersion
+
+Methods needed:
+- isExpired() → boolean
+- canBeDeleted() → boolean
+- updateState(newState)
+- addChatMessage(message)
+- toJSON() → serialization
+- validate() → validation
+
+Why plan methods:
+- Models aren't just data
+- Encapsulate business rules
+- Self-contained validation
+- Reusable across services

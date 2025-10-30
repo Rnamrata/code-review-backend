@@ -32,3 +32,10 @@ Build Order (bottom-up):
 6. RagCommunicatorService
 7. ReportGeneratorService
 8. ReviewOrchestratorService (depends on everything)
+
+Why map dependencies:
+- Build order matters
+- Avoid circular dependencies
+- Understand coupling
+- Plan testing strategy
+- Identify integration points

@@ -1,24 +1,50 @@
-Fields Needed:
-- issueId: string
-- category: string (security | quality | complexity | style)
-- severity: string (critical | high | medium | low)
-- type: string (SQL_INJECTION, WEAK_CRYPTO, etc.)
-- line: number
-- title: string
-- description: string
-- codeSnippet: string
-- fix: object { description, codeExample, estimatedTime }
-- aiExplanation: string
-- sources: array
+Identification:
+- issueId (unique per issue)
+- category (security, quality, complexity, style)
+- type (SQL_INJECTION, WEAK_CRYPTO, HIGH_COMPLEXITY, etc.)
 
-Methods Needed:
-- isCritical(): boolean
-- getSortPriority(): number
-- validate(): boolean
-- toJSON(): object
+Severity & Priority:
+- severity (critical, high, medium, low)
+- priority (1-10)
 
-Validation Rules:
-- category must be valid value
-- severity must be valid value
-- line must be positive number
-- title cannot be empty
+Location:
+- filename
+- line number
+- column (optional)
+- function name (if applicable)
+
+Description:
+- title (short summary)
+- description (detailed explanation)
+- codeSnippet (affected code)
+- impact (what could happen)
+
+Standards References:
+- cwe (Common Weakness Enumeration)
+- owasp (OWASP category)
+- rule (linter rule name)
+
+Fix Information:
+- fixDescription
+- fixCodeExample
+- difficultyLevel (easy, medium, hard)
+- estimatedTime
+- additionalChanges (array)
+
+AI Insights:
+- aiExplanation
+- sources (from RAG)
+- references (documentation links)
+
+Methods needed:
+- isCritical() → boolean
+- getDisplaySeverity() → string with color
+- getSortPriority() → number
+- toJSON()
+- validate()
+
+Why structured issues:
+- Consistent across analyzers
+- Easy to filter/sort
+- Clear display format
+- Tracking and metrics

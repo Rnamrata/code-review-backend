@@ -1,23 +1,55 @@
-Fields Needed:
-- reportId: string
-- sessionId: string
-- overallGrade: string (A-F)
-- overallScore: number (0-100)
-- categoryScores: object
-- detailedIssues: object { security, quality, complexity, style }
-- recommendations: object
-- metrics: object
+Metadata:
+- reportId
+- sessionId
+- filename
+- language
+- generatedAt
+- reportVersion
 
-Methods Needed:
-- calculateOverallScore(): number
-- getIssuesBySeverity(severity): array
-- getIssuesByCategory(category): array
-- getPrioritizedIssues(): array
-- validate(): boolean
-- toJSON(): object
+Executive Summary:
+- overallGrade (A-F)
+- overallScore (0-100)
+- status
+- verdict (text summary)
+- issue counts by severity
 
-Scoring Algorithm:
-- Security weight: 35%
-- Quality weight: 30%
-- Complexity weight: 20%
-- Style weight: 15%
+Category Scores:
+- security (score, grade, weight, issues)
+- quality (score, grade, weight, issues)
+- complexity (score, grade, weight, issues)
+- style (score, grade, weight, issues)
+
+Detailed Issues:
+- security issues array
+- quality issues array
+- complexity issues array
+- style issues array
+
+Recommendations:
+- immediate actions (prioritized)
+- improvements (grouped by category)
+- AI recommendations
+
+Action Plan:
+- phase 1: critical fixes
+- phase 2: quality improvements
+- phase 3: polish
+
+Metrics:
+- before scores
+- projected after scores
+
+Methods needed:
+- calculateOverallScore()
+- getIssuesBySeverity(severity)
+- getIssuesByCategory(category)
+- getPrioritizedIssues()
+- toJSON()
+- toPDF() (future)
+- validate()
+
+Why comprehensive report model:
+- Central structure for all results
+- Multiple output formats (JSON, PDF)
+- Consistent reporting
+- Easy to extend
