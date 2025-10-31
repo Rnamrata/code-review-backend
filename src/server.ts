@@ -57,6 +57,11 @@ app.use(
 // Routes
 // app.use('/api', router);
 
+import { logger, logStartup } from './utils/logger.util';
+
+logger.info('Testing logger');
+logStartup(3000, 'development');
+
 
 const PORT = process.env.PORT || 3000;
 
