@@ -1,0 +1,20 @@
+export const SUPPORTED_LANGUAGES = {
+  PYTHON: 'python',
+  JAVASCRIPT: 'javascript',
+  TYPESCRIPT: 'typescript',
+  JAVA: 'java',
+  CPP: 'cpp',
+  CSHARP: 'csharp'
+} as const;
+
+export const FILE_EXTENSION_MAP: Record<string, string> = {
+  '.py': SUPPORTED_LANGUAGES.PYTHON,
+  '.js': SUPPORTED_LANGUAGES.JAVASCRIPT,
+  '.jsx': SUPPORTED_LANGUAGES.JAVASCRIPT,
+  '.ts': SUPPORTED_LANGUAGES.TYPESCRIPT,
+  '.tsx': SUPPORTED_LANGUAGES.TYPESCRIPT,
+  '.java': SUPPORTED_LANGUAGES.JAVA,
+  '.cpp': SUPPORTED_LANGUAGES.CPP,
+  '.c': SUPPORTED_LANGUAGES.CPP,
+  '.cs': SUPPORTED_LANGUAGES.CSHARP
+};

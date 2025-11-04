@@ -3,7 +3,12 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import dotenv from "dotenv";
-// import router from './routes/index';
+
+import routes from './routes';
+import { errorHandler } from './middlewares/errorHandler.middleware';
+import { logStartup, logShutdown } from "./utils/logger.util";
+import { appConfig } from "./config/app.config";
+import { SessionManagerService } from "./services/sessionManager.service";
 
 // Load environment variables
 dotenv.config();   
@@ -34,39 +39,52 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-    res.json({ status: "healthy", timestamp: new Date().toISOString() });
+    res.json({ 
+        status: "healthy", 
+        timestamp: new Date().toISOString() 
+    });
 });
 
 // Error handling middleware
 app.use(
-    (
-        err: Error,
-        req: express.Request,
-        res: express.Response,
-        next: express.NextFunction
-    ) => {
-        console.error(err.stack);
-        res.status(500).json({
-            error: "Internal Server Error",
-            message:
-                process.env.NODE_ENV === "development" ? err.message : undefined,
-        });
-    }
-);
+   (req, res) => {
+    res.status(404).json({
+       error: "Not Found",
+       message: 'Cannot ${req.method} ${req.path}'
+    });
+});
 
 // Routes
-// app.use('/api', router);
+app.use('/api', routes);
 
-import { logger, logStartup } from './utils/logger.util';
+// Error handling middleware
+app.use(errorHandler);
 
-logger.info('Testing logger');
-logStartup(3000, 'development');
+// Initialize server
+const PORT = appConfig.port;
 
+async function startServer() {
+    try {
+        await SessionManagerService.initialize();
+        app.listen(PORT, () => {
+            logStartup(PORT, appConfig.nodeEnv);
+        });
+    } catch (error) {
+        console.error('Failed to start server', error);
+        process.exit(1);
+    }
+}
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+process.on('SIGINT', () => {
+    logShutdown('SIGINT signsl received');
+    process.exit(0);
 });
+
+process.on('SIGTERM', () => {
+    logShutdown('SIGTERM signsl received');
+    process.exit(0);
+});
+
+startServer();
 
 export default app;
