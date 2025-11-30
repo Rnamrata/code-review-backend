@@ -33,7 +33,7 @@ export interface ExecutiveSummary {
     infoIssues: number;
 }
 
-export interface CategotryScore {
+export interface CategoryScore {
     category: IssueCategory;
     sccore: number;
     grade: ReportGrade;
@@ -88,7 +88,7 @@ export interface MetricComparison {
 export class ReviewReport {
     metadata: ReportMetadata;
     summary: ExecutiveSummary;
-    categoryScores: Map<IssueCategory, CategotryScore>;
+    categoryScores: Map<IssueCategory, CategoryScore>;
     issues: Issue[];
     recommendations: Recommendation[];
     actionPlan: ActionPlanPhase[];

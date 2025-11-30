@@ -1,6 +1,6 @@
 import { promises as fs} from 'fs';
 import path from 'path';
-import { Session } from '../models/session';
+import { Session } from '../models/Session';
 import { appConfig } from '../config/app.config';
 import { logger, logFile, logSession } from '../utils/logger.util';
 import { SessionState } from '../constants/sessionStates';
