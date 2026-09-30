@@ -8,7 +8,7 @@ export enum IssueCategory {
 }
 
 export enum IssueSeverity {
-    CRETICAL = 'Critical',
+    CRITICAL = 'Critical',
     HIGH = 'High',
     MEDIUM = 'Medium',
     LOW = 'Low',
@@ -26,7 +26,7 @@ export interface IssueLocation {
     column: number;
     endline?: number;
     endcolumn?: number;
-    functionNeame?: string;
+    functionName?: string;
     className?: string;
 }
 
@@ -97,17 +97,17 @@ export class Issue {
     }
 
     isCritical(): boolean {
-        return this.severity === IssueSeverity.CRETICAL;
+        return this.severity === IssueSeverity.CRITICAL;
     }
 
     isHighPriority(): boolean {
-        return this.severity === IssueSeverity.CRETICAL || 
+        return this.severity === IssueSeverity.CRITICAL || 
                this.severity === IssueSeverity.HIGH;
     }
 
     calculatePriority(): number {
         const severityScore: Record<IssueSeverity, number> = {
-            [IssueSeverity.CRETICAL]: 10,
+            [IssueSeverity.CRITICAL]: 10,
             [IssueSeverity.HIGH]: 7,
             [IssueSeverity.MEDIUM]: 5,
             [IssueSeverity.LOW]: 3,
@@ -156,7 +156,7 @@ export class Issue {
 
     getDisplaySeverity(): string {
         const severityEmojis: Record<IssueSeverity, string> = {
-            [IssueSeverity.CRETICAL]: '🔥 Critical',
+            [IssueSeverity.CRITICAL]: '🔥 Critical',
             [IssueSeverity.HIGH]: '⚠️ High',
             [IssueSeverity.MEDIUM]: '🔶 Medium',
             [IssueSeverity.LOW]: 'ℹ️ Low',

@@ -1,4 +1,4 @@
-import { Session } from './Session';
+import { Session } from './session';
 import {
     Issue,
     IssueCategory,
@@ -8,7 +8,7 @@ import {
     IssueFix,
     IssueReference,
     AIInsight
-} from './issues';
+} from './issue';
 import {
     ReviewReport,
     ReportGrade,
@@ -33,7 +33,7 @@ import {
     StyleResults,
     RagInsights,
     AnalysisMetadata
-} from './AnalysisResult';
+} from './analysisResult';
 import {
     ChatMessage,
     MessageRole,
@@ -41,7 +41,7 @@ import {
     MessageMetadata,
     ChatHistory,
     ContextType
-} from './chatMesssage';
+} from './chatMessage';
 
 export function isIssue(value: any): value is Issue {
     return value instanceof Issue && typeof value.validate === 'function';

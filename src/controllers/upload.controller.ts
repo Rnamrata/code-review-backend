@@ -21,7 +21,7 @@ export const uploadFile = async (
             filename: req.file.originalname,
             size: req.file.size,
             ip: req.ip,
-            userAgent: req.get('User-Agent')?.charAt,
+            userAgent: req.get('User-Agent'),
             hashFile: !!req.file
         });
         const language = req.body.language;

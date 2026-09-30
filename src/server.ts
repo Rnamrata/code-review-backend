@@ -45,17 +45,16 @@ app.get("/health", (req, res) => {
     });
 });
 
-// Error handling middleware
-app.use(
-   (req, res) => {
-    res.status(404).json({
-       error: "Not Found",
-       message: 'Cannot ${req.method} ${req.path}'
-    });
-});
-
 // Routes
 app.use('/api', routes);
+
+// 404 handler (must come after routes)
+app.use((req, res) => {
+    res.status(404).json({
+        error: "Not Found",
+        message: `Cannot ${req.method} ${req.path}`
+    });
+});
 
 // Error handling middleware
 app.use(errorHandler);
@@ -76,12 +75,12 @@ async function startServer() {
 }
 
 process.on('SIGINT', () => {
-    logShutdown('SIGINT signsl received');
+    logShutdown('SIGINT signal received');
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-    logShutdown('SIGTERM signsl received');
+    logShutdown('SIGTERM signal received');
     process.exit(0);
 });
 

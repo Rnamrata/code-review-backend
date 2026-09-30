@@ -21,9 +21,9 @@
     "url": "git+https://github.com/Rnamrata/code-review-backend.git"
   },
   "license": "MIT",
-  "author": "Namrata Roy <roy.namrata,ces@gmail.com>",
+  "author": "Namrata Roy <roy.namrata.cse@gmail.com>",
   "type": "commonjs",
-  "main": "dist/server.ts",
+  "main": "dist/server.js",
   "directories": {
     "test": "tests"
   },

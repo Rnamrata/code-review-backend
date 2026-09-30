@@ -1,6 +1,6 @@
 import { promises as fs} from 'fs';
 import path from 'path';
-import { Session } from '../models/Session';
+import { Session } from '../models/session';
 import { appConfig } from '../config/app.config';
 import { logger, logFile, logSession } from '../utils/logger.util';
 import { SessionState } from '../constants/sessionStates';
@@ -76,7 +76,7 @@ export class SessionManagerService {
         const session = await this.getSession(sessionID);
         
         if(!session) {
-            throw new Error('Session not found: ${sessionID}');
+            throw new Error(`Session not found: ${sessionID}`);
         }
 
         Object.assign(session, updates);
@@ -94,7 +94,7 @@ export class SessionManagerService {
     ): Promise<Session> {
         const session = await this.getSession(sessionID);
         if(!session) {
-            throw new Error('Session not found: ${sessionID}');
+            throw new Error(`Session not found: ${sessionID}`);
         }
 
         session.updateState(newState);

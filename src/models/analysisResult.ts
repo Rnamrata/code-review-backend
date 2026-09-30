@@ -1,5 +1,5 @@
 
-import { Issue } from './issues';
+import { Issue } from './issue';
 
 export interface ParsingResults {
   language: string;

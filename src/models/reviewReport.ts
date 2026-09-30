@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Issue, IssueSeverity, IssueCategory } from './issues';
+import { Issue, IssueSeverity, IssueCategory } from './issue';
 
 export enum ReportGrade {
     A = 'A',
@@ -207,7 +207,7 @@ export class ReviewReport {
 
     countIssuesBySeverity(): Record<IssueSeverity, number> {
         const counts: Record<IssueSeverity, number> = {
-            [IssueSeverity.CRETICAL]: 0,
+            [IssueSeverity.CRITICAL]: 0,
             [IssueSeverity.HIGH]: 0,
             [IssueSeverity.MEDIUM]: 0,
             [IssueSeverity.LOW]: 0,
