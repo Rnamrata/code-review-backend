@@ -1,8 +1,7 @@
 import { Router } from "express";
-import uploadRoutes from "./upload.routes";
 
 const router = Router();
 
-router.use("/upload", uploadRoutes);
+// Review routes are added in the next step (POST /review)
 
 export default router;

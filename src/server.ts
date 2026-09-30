@@ -8,7 +8,6 @@ import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler.middleware';
 import { logStartup, logShutdown } from "./utils/logger.util";
 import { appConfig } from "./config/app.config";
-import { SessionManagerService } from "./services/sessionManager.service";
 
 // Load environment variables
 dotenv.config();   
@@ -64,7 +63,6 @@ const PORT = appConfig.port;
 
 async function startServer() {
     try {
-        await SessionManagerService.initialize();
         app.listen(PORT, () => {
             logStartup(PORT, appConfig.nodeEnv);
         });

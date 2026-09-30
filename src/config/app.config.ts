@@ -18,8 +18,6 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
   return value.toLowerCase() === 'true';
 };
 
-const RAG_BASE_URL = process.env.RAG_BASE_URL || '';
-
 export const appConfig = {
   // Server Configuration
   nodeEnv: getEnvString('NODE_ENV', 'development'),
@@ -37,17 +35,6 @@ export const appConfig = {
   allowedExtensions: getEnvString('ALLOWED_EXTENSIONS', '.py,.js,.java,.ts,.jsx,.tsx')
     .split(',')
     .map((ext) => ext.trim()),
-  uploadDirectory: getEnvString('UPLOAD_DIRECTORY', './uploads'),
-
-  // Session Configuration
-  sessionTimeoutHours: getEnvNumber('SESSION_TIMEOUT_HOURS', 24),
-  sessionCleanupIntervalHours: getEnvNumber('SESSION_CLEANUP_INTERVAL_HOURS', 1),
-  sessionDirectory: getEnvString('SESSION_DIRECTORY', './sessions'),
-
-  // RAG Configuration
-  ragBaseUrl: getEnvString('RAG_BASE_URL', RAG_BASE_URL),
-  ragTimeout: getEnvNumber('RAG_TIMEOUT', 30000),
-  ragRetryAttempts: getEnvNumber('RAG_RETRY_ATTEMPTS', 3),
 
   // Analysis Configuration
   enableStaticAnalysis: getEnvBoolean('ENABLE_STATIC_ANALYSIS', true),
