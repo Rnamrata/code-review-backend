@@ -142,3 +142,7 @@ vite.config.ts.timestamp-*
 
 # macOS system files
 .DS_store
+
+#claude
+*.claude
+.claude/
