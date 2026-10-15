@@ -35,6 +35,10 @@ export const appConfig = {
   allowedExtensions: getEnvString('ALLOWED_EXTENSIONS', '.py,.js,.java,.ts,.jsx,.tsx')
     .split(',')
     .map((ext) => ext.trim()),
+  
+  // Ruff
+  ruffBin: getEnvString('RUFF_BIN', 'ruff'),
+  ruffTimeoutMs: getEnvNumber('RUFF_TIMEOUT_MS', 15000),
 
   // Analysis Configuration
   enableStaticAnalysis: getEnvBoolean('ENABLE_STATIC_ANALYSIS', true),
