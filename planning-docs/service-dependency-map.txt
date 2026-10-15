@@ -1,41 +1,78 @@
-ReviewOrchestratorService (top-level coordinator)
-  ├── depends on → FileParserService
-  ├── depends on → StaticAnalyzerService
-  ├── depends on → SecurityAnalyzerService
-  ├── depends on → ComplexityCalculatorService
-  ├── depends on → StyleCheckerService
-  ├── depends on → RagCommunicatorService
-  └── depends on → ReportGeneratorService
+Service dependency map
+======================
+Status: matches the code on feature/ruff-adapter.
+Replaces the v1 map (sessions, parser, RAG communicator, report generator),
+which is still on branch archive/v1-node-primary.
 
-ReportGeneratorService
-  ├── depends on → SessionManagerService
-  └── depends on → All Models
+Request flow
+------------
+server.ts
+  └── routes/index.ts
+        └── routes/review.routes.ts            POST /review
+              └── controllers/review.controller.ts
+                    ├── utils/validator.util.ts          extension, size, safe filename
+                    ├── constants/fileTypes.ts           normalizeLanguage
+                    ├── config/app.config.ts
+                    ├── utils/responseFormatter.util.ts  error shape
+                    └── services/reviewOrchestrator.service.ts
+                          ├── services/adapters/eslint.adapter.ts   (JS / TS)
+                          ├── services/adapters/ruff.adapter.ts     (Python)
+                          ├── services/adapters/llm.adapter.ts      (planned)
+                          ├── services/findingsMerger.service.ts
+                          ├── services/reviewSummary.service.ts
+                          └── utils/logger.util.ts
 
-RagCommunicatorService
-  ├── depends on → axios
-  └── depends on → rag.config.js
+What each adapter depends on
+----------------------------
+eslint.adapter   eslint, @eslint/js, typescript-eslint, eslint-plugin-security
+                 (all in-process; nothing external to install)
+ruff.adapter     node child_process + the external "ruff" binary (RUFF_BIN)
+llm.adapter      (planned) HTTP call to the LLM / RAG service
 
-StaticAnalyzerService
-  ├── depends on → FileParserService (for AST)
-  └── depends on → Issue Model
+Shared by everything
+--------------------
+models/finding.ts       Finding, Severity, FindingSource, SEVERITY_ORDER
+models/review.model.ts  ReviewRequest, ReviewResponse, ReviewWarning,
+                        ReviewSummary, Analyzer
+config/app.config.ts    environment settings
+utils/logger.util.ts    winston logger
 
-SecurityAnalyzerService
-  ├── depends on → FileParserService (for parsed code)
-  └── depends on → Issue Model
+Dependency rules
+----------------
+- models import nothing from the rest of the project.
+- adapters import models, config, constants and utils only.
+  They never import the orchestrator, the merger or each other.
+- the orchestrator is the only place that knows which adapters exist.
+- the merger and the summary builder are pure functions over Finding[].
+  No I/O, no logging, so they are the easiest things to unit test.
+- controllers talk to the orchestrator, never to an adapter directly.
 
-Build Order (bottom-up):
-1. Models (no dependencies)
-2. Utilities (minimal dependencies)
-3. SessionManagerService
-4. FileParserService
-5. Individual Analyzers (depend on FileParser)
-6. RagCommunicatorService
-7. ReportGeneratorService
-8. ReviewOrchestratorService (depends on everything)
+Build order (bottom-up)
+-----------------------
+1. models
+2. config, constants
+3. utils (logger, validator, response formatter)
+4. adapters (independent of each other, can be built in any order)
+5. findingsMerger, reviewSummary
+6. reviewOrchestrator
+7. controller, routes
+8. server.ts
 
-Why map dependencies:
-- Build order matters
-- Avoid circular dependencies
-- Understand coupling
-- Plan testing strategy
-- Identify integration points
+External requirements
+---------------------
+- Node >= 20.19
+- ruff on PATH, or RUFF_BIN set (Python analysis is skipped with a warning
+  if it is missing)
+- LLM / RAG service (planned, optional)
+
+Not part of this service any more
+---------------------------------
+Sessions, file upload, JSON persistence, chat history, the RAG communicator,
+the report generator and the hand-written analyzers. The chatbot owns the
+conversation; this service only turns code into findings.
+
+Why keep this map
+-----------------
+- Shows where a new analyzer plugs in (one file plus one registration line).
+- Keeps adapters independent so one can fail without touching the others.
+- Guides the test plan: pure functions first, then adapters, then the route.

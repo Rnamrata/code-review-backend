@@ -1,0 +1,67 @@
+Review request / response models  (src/models/review.model.ts)
+===============================================================
+Status: implemented.
+Replaces the v1 "ReviewReport" model (still on branch archive/v1-node-primary).
+
+Request
+-------
+POST /review  { filename, language, code }   (all strings)
+
+Inside the service the controller turns it into a ReviewRequest:
+- filename      trimmed original name. Used in findings and logs.
+- safeFilename  sanitized copy. Only for things that touch a path or a
+                stdin label (ESLint virtual path, Ruff --stdin-filename).
+- language      normalized: js/ts/py/... become javascript/typescript/python.
+- code          untouched. Never executed and never written to disk.
+
+Response  (always HTTP 200 when the review ran)
+-----------------------------------------------
+{
+  findings: Finding[],
+  warnings: ReviewWarning[],
+  summary:  ReviewSummary
+}
+
+- findings  merged, deduplicated, sorted by severity then line.
+            This is the ONLY field the chatbot reads, so it stays top-level.
+- warnings  non-fatal problems: an analyzer failed or timed out, Ruff is not
+            installed, or no analyzer supports the language.
+            source is an analyzer name or "orchestrator".
+- summary   total, bySeverity, bySource, byCategory. Derived from findings.
+
+Error responses
+---------------
+- 400  invalid body, unsupported extension, bad size, malformed JSON
+- 413  body larger than the JSON limit
+- 500  unexpected failure
+Error bodies use { success: false, error, message, timestamp }.
+
+Analyzer contract
+-----------------
+interface Analyzer {
+  name: FindingSource;
+  supports(language): boolean;
+  analyze(request): Promise<Finding[]>;
+}
+An analyzer throws on failure. The orchestrator turns that into a warning and
+still returns everyone else's findings.
+
+Behavior rules
+--------------
+- One failing analyzer never fails the review.
+- A language nobody supports returns no findings AND a warning, never a clean
+  result that looks like "no problems".
+- Each analyzer has its own timeout, well under the chatbot's 60 s.
+
+Deferred from the v1 report model
+---------------------------------
+Not built, and not needed while the chatbot presents results:
+- reportId, sessionId, reportVersion, generatedAt
+- overall grade (A-F) and score (0-100), verdict text
+- per-category scores, grades and weights
+- recommendations and the 3-phase action plan
+- before/after metrics
+- toPDF()
+
+If scored reports are ever needed, build them as a layer on top of /review
+that consumes findings, instead of changing the response shape.

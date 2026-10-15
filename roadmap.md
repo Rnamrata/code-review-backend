@@ -18,10 +18,11 @@ POST /review  { filename, language, code }
    orchestrator      pick analyzers by language, run in parallel
         |             (per-analyzer timeout, failures become warnings)
         |-- eslint adapter   (JS / TS)
-        |-- ruff adapter     (Python)      <- in progress
+        |-- ruff adapter     (Python)
         |-- llm adapter      (RAG service) <- planned
         |
-   findingsMerger    de-duplicate, linters win ties, sort by severity
+   findingsMerger    merge across analyzers only (same-source findings are kept),
+        |             linters win ties, highest severity kept, sort by severity
         |
    reviewSummary     counts by severity / source / category
         |
@@ -49,26 +50,32 @@ POST /review  { filename, language, code }
 | Language normalization (aliases, extension fallback) | Done | `src/constants/fileTypes.ts` |
 | Models: `Finding`, `Severity`, `ReviewRequest`, `ReviewResponse`, `Analyzer` | Done | `src/models/` |
 | Orchestrator: parallel run, timeout, warnings, unsupported-language response | Done | `src/services/reviewOrchestrator.service.ts` |
-| Findings merger with source priority | Done | `src/services/findingsMerger.service.ts` |
+| Findings merger: cross-analyzer dedupe only, same-source findings kept, higher severity wins | Done | `src/services/findingsMerger.service.ts` |
 | Summary builder | Done | `src/services/reviewSummary.service.ts` |
 | ESLint adapter (JS/TS, with security plugin) | Done | `src/services/adapters/eslint.adapter.ts` |
+| Ruff adapter (Python; isolated config, `noqa` ignored, per-run timeout) | Done | `src/services/adapters/ruff.adapter.ts` |
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (typecheck, build, test, audit; Node 20 and 22) | Done | `.github/workflows/ci.yml` |
+| README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 
-### In progress (branch `feature/ruff-adapter`)
+### In progress
 
-- `RUFF_BIN` and `RUFF_TIMEOUT_MS` added to `.env.example` and `app.config.ts`.
-- The adapter itself (`src/services/adapters/ruff.adapter.ts`) is **not written yet** and is not registered in the orchestrator.
+Nothing active. Phase A is complete; Phase B (tests) is next.
 
 ### Known gaps
 
-- `npm test` is a no-op, so CI's test step proves nothing. `tests/` is empty.
+- `npm test` is a no-op, so CI's test step proves nothing. There are no test files.
 - No LLM / RAG analyzer exists; `'llm'` is only a type and a merge priority.
 - `fileTypes.ts` lists Java, C++ and C#, but no analyzer supports them. The `.cpp`, `.c` and `.cs` extensions are also not in the allow-list.
 - No rate limiting; CORS defaults to `*`.
 - Request validation is inline in the controller; the controller has an unused `ReviewResponse` import.
 - The `maxFileSizeMB` limit (1 MB) is not coordinated with the `express.json` limit (2 MB).
-- `sessions/`, `uploads/`, `dist/` and `planning-docs/` are leftovers from the earlier session-based design.
+- `NODE_ENV` defaults to `development`, so error responses include stack traces and local paths unless it is set.
+- Config keys with no consumer yet: `host`, the three complexity thresholds and the two rate-limit values. (The thresholds and rate limits are planned for Phases E and C; `host` has no plan and can go.)
+- Logger helpers `createChildLogger`, `logPerformance`, `logError` and `logSecurity` exist but are not called yet (see Phase C).
+- Empty local directories `sessions/`, `uploads/` and `tests/` are untracked leftovers.
+- `/health` returns `"healthy"` and does not check Ruff or the LLM service.
+- Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
 ---
 
@@ -76,17 +83,19 @@ POST /review  { filename, language, code }
 
 Phases are ordered by dependency. Each has an explicit "done when" so progress is checkable.
 
-### Phase A - Finish Python support (current)
+### Phase A - Finish Python support (done)
 
-- [ ] Write `src/services/adapters/ruff.adapter.ts`
-  - Run Ruff with `execFile` (never `exec`), passing code via stdin and `--output-format json`.
-  - Use `appConfig.ruffBin` and `appConfig.ruffTimeoutMs`.
-  - Map Ruff rule codes to `category` (for example `S*` to security, `F*` and `B*` to bug, the rest to maintainability) and to `severity`.
-  - Skip results with no line number; treat a missing binary as a clear analyzer error, not a crash.
-- [ ] Register `ruffAdapter` in the orchestrator's `analyzers` array.
-- [ ] Document Ruff as a runtime dependency (README, CI step to install it).
+- [x] Write `src/services/adapters/ruff.adapter.ts`
+  - Spawns Ruff with an argument array (never through a shell); code goes in via stdin with `--output-format json`.
+  - `--isolated` ignores any local Ruff config, and `--ignore-noqa` stops submitted code from hiding findings.
+  - Uses `appConfig.ruffBin` and `appConfig.ruffTimeoutMs`; the process is killed on timeout.
+  - Maps Ruff codes to `category` and `severity`: `S*` is security/high, `B*`, `E9`, `F5`, `F63`, `F7`, `F82` are bug/medium, syntax errors are bug/high, the rest are maintainability/low.
+  - Treats a missing binary, a non-0/1 exit, empty output or invalid JSON as an analyzer error, which becomes a warning.
+- [x] Register `ruffAdapter` in the orchestrator's `analyzers` array.
+- [x] Document Ruff as a runtime dependency in the README.
+- [ ] CI step to install Ruff. This moves to Phase B, since it only matters once tests exercise the adapter.
 
-**Done when:** a `.py` file with an unused import and a hard-coded `eval` returns findings with `source: 'ruff'`, and a missing Ruff binary returns a warning instead of failing the request.
+**Done:** a `.py` file with an unused import and a hard-coded `eval` returns findings with `source: 'ruff'`, and a missing Ruff binary returns a warning instead of failing the request.
 
 ### Phase B - Tests and a meaningful CI
 
@@ -111,8 +120,15 @@ Phases are ordered by dependency. Each has an explicit "done when" so progress i
 - [ ] Align the body-size limit with `MAX_FILE_SIZE_MB`.
 - [ ] Return 413 for oversized payloads with the standard error shape.
 - [ ] Add request IDs to logs and responses.
+- [ ] Wire in the logger helpers that are already written:
+  - `createChildLogger` in the controller, with a request ID, so every log line of one review is correlated across the orchestrator and adapters.
+  - `logPerformance` around each analyzer and the whole review, with a per-call threshold (the default 1 s would warn on every LLM call).
+  - `logError` in the error handler and for failed analyzers, so stack traces are logged consistently.
+  - `logSecurity` for rejected requests (`invalid_request`) and, later, rate-limit events.
+  - Keep `logAnalysis` and `logRag` for Phase D, renaming `sessionId` to a request ID and `logRag` to `logLlm`.
+- [ ] Default `NODE_ENV` to production-safe behaviour so stack traces never reach a client by accident.
 - [ ] Graceful shutdown: stop accepting connections and let in-flight reviews finish.
-- [ ] Remove dead code: unused imports, unused CORS header, config flags with no consumer, leftover directories.
+- [ ] Remove dead code: the unused `ReviewResponse` import, the unused CORS header, the unused `host` config key, and the empty `sessions/` and `uploads/` directories. Keep the complexity thresholds (Phase E) and rate-limit values (this phase) and use them. (The `enable*` analysis flags are already removed.)
 
 **Done when:** an abusive client is throttled, bad input gets a consistent 4xx, and a startup with unsafe CORS settings fails loudly.
 
@@ -121,7 +137,7 @@ Phases are ordered by dependency. Each has an explicit "done when" so progress i
 - [ ] Add `src/config/rag.config.ts` (base URL, timeout, retries).
 - [ ] Write `src/services/adapters/llm.adapter.ts` implementing `Analyzer`:
   - Send code and language to the RAG service, ask for structured findings.
-  - Validate the response shape (`isSeverity`, line bounds) and drop malformed items.
+  - Validate the response shape and drop malformed items: severity in the allowed set, line within the file. The `isSeverity` helper was removed from `finding.ts` as unused, so re-add it here when this adapter needs it.
   - Tag results `source: 'llm'`; keep `suggestion` populated where available.
 - [ ] Register it; make it optional via env flag so linters still work if RAG is down.
 - [ ] Use a shorter timeout than the shared 45 s so the chatbot's 60 s limit holds.
@@ -177,7 +193,7 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | Phase | Scope | Status |
 |---|---|---|
 | Foundation | Server, `/review`, orchestrator, merger, summary, ESLint adapter, CI | Done |
-| A | Ruff adapter | In progress |
+| A | Ruff adapter | Done |
 | B | Tests and meaningful CI | Not started |
 | C | Hardening | Not started |
 | D | LLM / RAG analyzer | Not started |
