@@ -12,16 +12,6 @@ export interface Finding {
     suggestion?: string;
 }
 
-export interface ReviewRequest {
-    filename: string;
-    language: string;
-    code: string;
-}
-
-export interface ReviewResponse {
-    findings: Finding[];
-}
-
 export const SEVERITY_ORDER: Record<Severity, number> = {
     critical: 0,
     high: 1,
