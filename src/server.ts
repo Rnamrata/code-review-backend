@@ -33,8 +33,8 @@ app.use(
     })
 );
 app.use(morgan("dev"));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -45,7 +45,7 @@ app.get("/health", (req, res) => {
 });
 
 // Routes
-app.use('/api', routes);
+app.use(routes);
 
 // 404 handler (must come after routes)
 app.use((req, res) => {

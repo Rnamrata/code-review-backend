@@ -21,7 +21,7 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
 export const appConfig = {
   // Server Configuration
   nodeEnv: getEnvString('NODE_ENV', 'development'),
-  port: getEnvNumber('PORT', 3000),
+  port: getEnvNumber('PORT', 4000),
   host: getEnvString('HOST', 'localhost'),
 
   // Logging Configuration
