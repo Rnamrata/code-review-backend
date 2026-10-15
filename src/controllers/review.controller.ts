@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { appConfig } from '../config/app.config';
 import { HTTP_STATUS } from '../constants/httpStatus';
-import { ReviewRequest, ReviewResponse } from '../models';
+import { ReviewRequest } from '../models';
 import { reviewCode } from '../services/reviewOrchestrator.service';
 import { errorResponse } from '../utils/responseFormatter.util';
 import { Validator } from '../utils/validator.util';

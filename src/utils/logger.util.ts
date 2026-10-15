@@ -210,32 +210,6 @@ export const logShutdown = (reason: string): void => {
 };
 
 /**
- * Log session operation
- * 
- * @param operation - Operation name (created, updated, deleted)
- * @param sessionId - Session ID
- * @param metadata - Additional metadata
- */
-export const logSession = (
-  operation: 'created' | 'updated' | 'deleted' | 'expired',
-  sessionId: string,
-  metadata?: Record<string, any>
-): void => {
-  const emoji = {
-    created: '✅',
-    updated: '🔄',
-    deleted: '🗑️',
-    expired: '⏰'
-  };
-
-  logger.info(`${emoji[operation]} Session ${operation}`, {
-    sessionId,
-    operation,
-    ...metadata
-  });
-};
-
-/**
  * Log analysis operation
  * 
  * @param stage - Analysis stage
@@ -250,32 +224,6 @@ export const logAnalysis = (
   logger.info(`📊 Analysis: ${stage}`, {
     sessionId,
     stage,
-    ...metadata
-  });
-};
-
-/**
- * Log file operation
- * 
- * @param operation - Operation name
- * @param filename - Filename
- * @param metadata - Additional metadata
- */
-export const logFile = (
-  operation: 'uploaded' | 'parsed' | 'deleted' | 'saved',
-  filename: string,
-  metadata?: Record<string, any>
-): void => {
-  const emoji = {
-    uploaded: '📤',
-    parsed: '📝',
-    deleted: '🗑️',
-    saved: '💾'
-  };
-
-  logger.info(`${emoji[operation]} File ${operation}: ${filename}`, {
-    filename,
-    operation,
     ...metadata
   });
 };

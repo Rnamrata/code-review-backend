@@ -30,7 +30,7 @@ export const appConfig = {
   logToFile: getEnvBoolean('LOG_TO_FILE', true),
   logDirectory: getEnvString('LOG_DIRECTORY', './logs'),
 
-  // File Upload Configuration
+  // File Configuration
   maxFileSizeMB: getEnvNumber('MAX_FILE_SIZE_MB', 1),
   allowedExtensions: getEnvString('ALLOWED_EXTENSIONS', '.py,.js,.java,.ts,.jsx,.tsx')
     .split(',')
@@ -39,13 +39,6 @@ export const appConfig = {
   // Ruff
   ruffBin: getEnvString('RUFF_BIN', 'ruff'),
   ruffTimeoutMs: getEnvNumber('RUFF_TIMEOUT_MS', 15000),
-
-  // Analysis Configuration
-  enableStaticAnalysis: getEnvBoolean('ENABLE_STATIC_ANALYSIS', true),
-  enableSecurityAnalysis: getEnvBoolean('ENABLE_SECURITY_ANALYSIS', true),
-  enableComplexityAnalysis: getEnvBoolean('ENABLE_COMPLEXITY_ANALYSIS', true),
-  enableStyleChecking: getEnvBoolean('ENABLE_STYLE_CHECKING', true),
-  enableRagAnalysis: getEnvBoolean('ENABLE_RAG_ANALYSIS', true),
 
   // Complexity Thresholds
   cyclomaticComplexityThreshold: getEnvNumber('CYCLOMATIC_COMPLEXITY_THRESHOLD', 5),
