@@ -20,6 +20,3 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
     info: 4
 };
 
-export function isSeverity(value: unknown): value is Severity {
-    return typeof value === 'string' && value in SEVERITY_ORDER;
-}

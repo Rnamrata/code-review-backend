@@ -1,0 +1,73 @@
+Finding model  (src/models/finding.ts)
+======================================
+Status: implemented.
+Replaces the v1 "Issue" model (still on branch archive/v1-node-primary).
+
+What a finding is
+-----------------
+One problem found at one place in the submitted code, reported by one
+analyzer (ESLint, Ruff, or later the LLM). Every analyzer returns the same
+shape, so the merger, the summary and the chatbot never care where a finding
+came from.
+
+Fields
+------
+Required (the chatbot reads exactly these four):
+- file        name the caller sent. The orchestrator overwrites whatever an
+              analyzer reported, so a temp path or a guess never leaks out.
+- line        1-based. Findings without a positive line are dropped.
+- message     what is wrong. Adapters append the rule id, e.g. "... (F401)".
+- severity    critical | high | medium | low | info
+
+Optional:
+- category    security | bug | maintainability (style, performance reserved).
+              Used by the merger to decide whether two findings are the same.
+- source      eslint | ruff | llm. Drives merge priority and the summary.
+- suggestion  how to fix it. Ruff fills it from its fix message.
+
+Ordering
+--------
+SEVERITY_ORDER: critical 0, high 1, medium 2, low 3, info 4.
+Findings are sorted by severity, then by line.
+
+How the current adapters assign severity and category
+-----------------------------------------------------
+ESLint
+- Parse error (fatal)              -> high,   bug
+- security/* rules                 -> high,   security
+- rules in the bug list            -> medium (error) / low (warn), bug
+- everything else                  -> medium (error) / low (warn), maintainability
+
+Ruff (reports every diagnostic as "error", so severity comes from the code)
+- invalid-syntax                   -> high,   bug   (only the first one is kept)
+- S*  (bandit)                     -> high,   security
+- B*, E9, F5, F63, F7, F82         -> medium, bug
+- everything else                  -> low,    maintainability
+
+Rules that must stay true
+-------------------------
+- New fields are added as OPTIONAL, so the chatbot keeps working.
+- Never change the meaning of file, line, message or severity.
+- Findings from one analyzer are never merged with each other, even on the
+  same line. They are merged only across different sources.
+
+Why the model is slim
+---------------------
+v1 tried to carry everything (ids, priorities, CWE/OWASP, fix plans) because
+this service owned sessions and reports. It no longer does: it returns raw
+findings and the chatbot decides how to present them. A smaller contract is
+easier to produce from third-party tools and harder to get wrong.
+
+Deferred from the v1 Issue model
+--------------------------------
+Add back as optional fields only when something consumes them:
+- issueId, type (e.g. SQL_INJECTION)
+- column, endLine, functionName
+- codeSnippet, impact
+- priority (1-10)
+- cwe, owasp, rule, documentation links
+- fix details: example code, difficulty, estimated time, extra changes
+- aiInsight: explanation, sources, confidence
+
+Methods from v1 (isCritical, getDisplaySeverity, validate, toJSON) are not
+needed: Finding is plain data, and ordering lives in SEVERITY_ORDER.
