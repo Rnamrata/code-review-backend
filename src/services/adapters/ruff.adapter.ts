@@ -18,7 +18,7 @@ const SELECT = ['E4', 'E7', 'E9', 'F', 'B', 'S', 'C90'];
 const IGNORE = ['S101'];
 
 // Stop reading if Ruff's output is absurdly large.
-const MAX_OUTPUT_BYTE = 5 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 // Codes that point at a likely bug rather than upkeep.
 const BUG_PREFIXES = ['B', 'E9', 'F5', 'F63', 'F7', 'F82'];
@@ -86,7 +86,7 @@ function runRuff(request: ReviewRequest): Promise<RuffDiagnostic[]> {
 
         child.stdout.on('data', (chunk: string) => {
             bytes += Buffer.byteLength(chunk);
-            if (bytes> MAX_OUTPUT_BYTE) {
+            if (bytes> MAX_OUTPUT_BYTES) {
                 child.kill();
                 reject(new Error('Ruff output exceeded the size limit'));
                 return;
@@ -98,14 +98,14 @@ function runRuff(request: ReviewRequest): Promise<RuffDiagnostic[]> {
         child.on('error', (err: NodeJS.ErrnoException) => {
             reject (
                 err.code === 'ENOENT'
-                ? new Error(`Ruff not founs at "${appConfig.ruffBin}" (set RUFF_BIN)`)
+                ? new Error(`Ruff not found at "${appConfig.ruffBin}" (set RUFF_BIN)`)
                 : err
             );
         });
 
         child.on('close', (code, signal) => {
             if (signal) {
-                reject(new Error(`Ruff was stoped (${signal}), likely a timeout`));
+                reject(new Error(`Ruff was stopped (${signal}), likely a timeout`));
                 return;
             }
             // 0 = clean, 1 = findings. Anything else (2+) means Ruff itself failed.
@@ -127,7 +127,7 @@ function runRuff(request: ReviewRequest): Promise<RuffDiagnostic[]> {
         });
 
         // If Ruff dies early the pipe closes; the 'close' handler reports it.
-        child.stdin.on('error', () => 'undefined');
+        child.stdin.on('error', () => undefined);
         child.stdin.end(request.code);
     });
 }
@@ -140,14 +140,14 @@ export const ruffAdapter: Analyzer = {
     },
 
     async analyze(request: ReviewRequest): Promise<Finding[]> {
-        const diagonstic = (await runRuff(request)).filter((d) => d.location.row > 0);
+        const diagnostic = (await runRuff(request)).filter((d) => d.location.row > 0);
 
         // One syntax mistake can produce several entries ("...", "unexpected EOF").
         // Keep only the first, and report nothing else: later findings would be noise.
-        const syntaxErrors = diagonstic.filter(isSyntaxError);
+        const syntaxErrors = diagnostic.filter(isSyntaxError);
         if (syntaxErrors.length > 0) {
             return [toFinding(syntaxErrors[0], request)];
         }
-        return diagonstic.map((d) => toFinding(d, request));
+        return diagnostic.map((d) => toFinding(d, request));
     }
 };
