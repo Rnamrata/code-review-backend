@@ -73,7 +73,7 @@ Nothing active. Phase A is complete; Phase B (tests) is next.
 - `NODE_ENV` defaults to `development`, so error responses include stack traces and local paths unless it is set.
 - Config keys with no consumer yet: `host`, the three complexity thresholds and the two rate-limit values. (The thresholds and rate limits are planned for Phases E and C; `host` has no plan and can go.)
 - Logger helpers `createChildLogger`, `logPerformance`, `logError` and `logSecurity` exist but are not called yet (see Phase C).
-- Empty local directories `sessions/`, `uploads/` and `tests/` are untracked leftovers.
+- An empty local `tests/` directory is an untracked leftover; specs live next to the code as `*.spec.ts`.
 - `/health` returns `"healthy"` and does not check Ruff or the LLM service.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
@@ -128,7 +128,7 @@ Phases are ordered by dependency. Each has an explicit "done when" so progress i
   - Keep `logAnalysis` and `logRag` for Phase D, renaming `sessionId` to a request ID and `logRag` to `logLlm`.
 - [ ] Default `NODE_ENV` to production-safe behaviour so stack traces never reach a client by accident.
 - [ ] Graceful shutdown: stop accepting connections and let in-flight reviews finish.
-- [ ] Remove dead code: the unused `ReviewResponse` import, the unused CORS header, the unused `host` config key, and the empty `sessions/` and `uploads/` directories. Keep the complexity thresholds (Phase E) and rate-limit values (this phase) and use them. (The `enable*` analysis flags are already removed.)
+- [ ] Remove dead code: the unused CORS header and the unused `host` config key. Keep the complexity thresholds (Phase E) and rate-limit values (this phase) and use them. (The `enable*` analysis flags, the unused `ReviewResponse` import and the empty `sessions/` and `uploads/` directories are already removed.)
 
 **Done when:** an abusive client is throttled, bad input gets a consistent 4xx, and a startup with unsafe CORS settings fails loudly.
 
