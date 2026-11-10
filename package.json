@@ -42,7 +42,6 @@
   "date": "Oct-30-2025",
   "dependencies": {
     "@eslint/js": "^10.0.1",
-    "axios": "^1.13.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "eslint": "^10.12.0",
