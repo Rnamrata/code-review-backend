@@ -63,10 +63,8 @@ beforeEach(() => {
 
   supports(eslint, 'javascript', 'typescript');
   supports(ruff, 'python');
-  supports(llm, 'python'); // Assuming LLM also supports Python
   eslint.analyze.mockResolvedValue([]);
   ruff.analyze.mockResolvedValue([]);
-  llm.analyze.mockResolvedValue([]);
 });
 
 afterEach(() => {
