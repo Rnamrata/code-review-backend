@@ -109,6 +109,27 @@ describe('the request to Ollama', () => {
     expect(format.properties.findings.type).toBe('array');
   });
 
+  it('requires a category and a quote of the line in every finding', async () => {
+    await llmAdapter.analyze(request());
+
+    const { required } = sentBody().format.properties.findings.items;
+    expect(required).toEqual(expect.arrayContaining(['line', 'severity', 'category', 'message', 'snippet']));
+  });
+
+  it('asks the model to quote the offending line', async () => {
+    await llmAdapter.analyze(request());
+
+    expect(sentBody().messages[0].content).toMatch(/snippet/);
+  });
+
+  it('sends the seed from the config', async () => {
+    appConfig.llmSeed = 123;
+
+    await llmAdapter.analyze(request());
+
+    expect(sentBody().options.seed).toBe(123);
+  });
+
   it('sets the context window, temperature and keep-alive from the config', async () => {
     appConfig.llmNumCtx = 6000;
     appConfig.llmTemperature = 0.1;
@@ -281,6 +302,87 @@ describe('turning the answer into findings', () => {
     fetchMock.mockImplementation(async () => answer([item({ severity })]));
 
     expect((await llmAdapter.analyze(request()))[0].severity).toBe(severity);
+  });
+});
+
+describe('finding the right line', () => {
+  // Line numbers in this file are 1: import os, 2: os.system(cmd), 3: eval(cmd), 4: x = eval(cmd)
+  const code = 'import os\nos.system(cmd)\neval(cmd)\nx = eval(cmd)\n';
+
+  const lineOf = async (overrides: Record<string, unknown>) => {
+    fetchMock.mockImplementation(async () => answer([item(overrides)]));
+    const findings = await llmAdapter.analyze(request({ code }));
+    return findings[0]?.line;
+  };
+
+  it('moves a miscounted line to the line the model quoted', async () => {
+    expect(await lineOf({ line: 3, snippet: 'os.system(cmd)' })).toBe(2);
+  });
+
+  it('keeps the line when the quote is on that line', async () => {
+    expect(await lineOf({ line: 2, snippet: 'os.system(cmd)' })).toBe(2);
+  });
+
+  it('ignores differences in indentation and spacing', async () => {
+    expect(await lineOf({ line: 3, snippet: '   os.system(  cmd )  ' })).toBe(2);
+    expect(await lineOf({ line: 3, snippet: 'os . system ( cmd )' })).toBe(2);
+  });
+
+  it('accepts a quote of part of the line', async () => {
+    expect(await lineOf({ line: 1, snippet: 'system(cmd)' })).toBe(2);
+  });
+
+  it('prefers a whole-line match over a partial one', async () => {
+    // "eval(cmd)" is the whole of line 3 and only part of line 4.
+    expect(await lineOf({ line: 4, snippet: 'eval(cmd)' })).toBe(3);
+  });
+
+  it('picks the occurrence nearest the line the model gave', async () => {
+    const repeated = 'total = total + 1\nprint(total)\nprint(total)\ntotal = total + 1\n';
+    const lineFor = async (claimed: number) => {
+      fetchMock.mockImplementation(async () => answer([item({ line: claimed, snippet: 'total = total + 1' })]));
+      return (await llmAdapter.analyze(request({ code: repeated })))[0].line;
+    };
+
+    expect(await lineFor(2)).toBe(1);
+    expect(await lineFor(3)).toBe(4);
+  });
+
+  it('uses the given line when the quote matches nothing', async () => {
+    expect(await lineOf({ line: 3, snippet: 'this text is not in the file' })).toBe(3);
+  });
+
+  it('uses the given line when there is no quote', async () => {
+    expect(await lineOf({ line: 3, snippet: undefined })).toBe(3);
+  });
+
+  it('uses the given line when the quote is blank', async () => {
+    expect(await lineOf({ line: 3, snippet: '   ' })).toBe(3);
+  });
+
+  it('does not match a very short fragment against a longer line', async () => {
+    // "os" is part of lines 1 and 2, which says nothing about where the problem is.
+    expect(await lineOf({ line: 4, snippet: 'os' })).toBe(4);
+  });
+
+  it('recovers a finding whose line number is outside the file', async () => {
+    expect(await lineOf({ line: 99, snippet: 'os.system(cmd)' })).toBe(2);
+  });
+
+  it('still drops a finding with no usable line and no quote', async () => {
+    expect(await lineOf({ line: 99, snippet: undefined })).toBeUndefined();
+  });
+
+  it('ignores a quote that is not text', async () => {
+    expect(await lineOf({ line: 3, snippet: 42 })).toBe(3);
+  });
+
+  it('finds the line in code with Windows line endings', async () => {
+    fetchMock.mockImplementation(async () => answer([item({ line: 3, snippet: 'os.system(cmd)' })]));
+
+    const findings = await llmAdapter.analyze(request({ code: 'import os\r\nos.system(cmd)\r\neval(cmd)\r\n' }));
+
+    expect(findings[0].line).toBe(2);
   });
 });
 

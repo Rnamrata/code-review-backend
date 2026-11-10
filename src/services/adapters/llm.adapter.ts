@@ -16,6 +16,9 @@ const CATEGORIES = ['security', 'bug', 'maintainability', 'performance'];
 // A model is a second opinion, never the last word, so it cannot raise a critical.
 const MAX_SEVERITY: Severity = 'high';
 
+// Shorter quotes than this ("}", "i++") would match too many lines to mean anything (counted without spaces).
+const MIN_FRAGMENT_CHARS = 6;
+
 const MAX_MESSAGE_CHARS = 500;
 const MAX_SUGGESTION_CHARS = 500;
 // Room for up to MAX_FINDINGS findings; a reply cut off mid-JSON is reported, not guessed at.
@@ -27,6 +30,7 @@ Report only real problems: security vulnerabilities, bugs, and serious maintaina
 Do not report style, naming, formatting, unused imports, or missing comments and documentation.
 Every line is prefixed with its number. Use those numbers exactly and report each problem once, on the line where it occurs.
 Keep every message to one sentence. Add a short suggestion only when you know the fix.
+For every finding, give its category and copy the exact text of the offending line, without its number, into the "snippet" field.
 If you find nothing wrong, return an empty findings list.`;
 
 // Ollama constrains the reply to this shape, so parsing rarely fails.
@@ -42,9 +46,10 @@ const REPLY_SCHEMA = {
                     severity: { type: 'string', enum: ['high', 'medium', 'low', 'info'] },
                     category: { type: 'string', enum: CATEGORIES },
                     message: { type: 'string' },
-                    suggestion: { type: 'string' }
+                    suggestion: { type: 'string' },
+                    snippet: { type: 'string' }
                 },
-                required: ['line', 'severity', 'message']
+                required: ['line', 'severity', 'category', 'message', 'snippet']
             }
         }
     },
@@ -63,6 +68,28 @@ function buildPrompt(language: string, lines: string[]): string {
     return `Language: ${language}\n\n${numbered}`;
 }
 
+// Models copy a line faithfully except for its spacing, so compare without any.
+const squash = (text: string): string => text.replace(/\s+/g, '');
+
+const nearest = (candidates: number[], target: number): number =>
+    candidates.reduce((best, line) => (Math.abs(line - target) < Math.abs(best - target) ? line : best));
+
+// Models often miscount a line by one but copy the text correctly, so the quoted text
+// is the better guide to where the problem is. When nothing matches, the number stands.
+function locateLine(lines: string[], claimed: unknown, snippet: unknown): number | undefined {
+    const claimedLine = typeof claimed === 'number' && Number.isInteger(claimed) ? claimed : undefined;
+    const quoted = typeof snippet === 'string' ? squash(snippet) : '';
+
+    if (quoted) {
+        const numbers = lines.map((_, index) => index + 1);
+        const whole = numbers.filter((n) => squash(lines[n - 1]) === quoted);
+        const part = quoted.length >= MIN_FRAGMENT_CHARS ? numbers.filter((n) => squash(lines[n - 1]).includes(quoted)) : [];
+        const hits = whole.length > 0 ? whole : part;
+        if (hits.length > 0) return nearest(hits, claimedLine ?? hits[0]);
+    }
+    return claimedLine;
+}
+
 const asText = (value: unknown, maxChars: number): string | undefined => {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();
@@ -70,12 +97,12 @@ const asText = (value: unknown, maxChars: number): string | undefined => {
 };
 
 // Keeps a model item only when everything the chatbot relies on is trustworthy.
-function toFinding(item: unknown, lineCount: number, request: ReviewRequest): Finding | undefined {
+function toFinding(item: unknown, lines: string[], request: ReviewRequest): Finding | undefined {
     if (typeof item !== 'object' || item === null) return undefined;
     const raw = item as Record<string, unknown>;
 
-    const line = raw.line;
-    if (typeof line !== 'number' || !Number.isInteger(line) || line < 1 || line > lineCount) return undefined;
+    const line = locateLine(lines, raw.line, raw.snippet);
+    if (line === undefined || line < 1 || line > lines.length) return undefined;
     if (!isSeverity(raw.severity)) return undefined;
     const message = asText(raw.message, MAX_MESSAGE_CHARS);
     if (!message) return undefined;
@@ -94,7 +121,7 @@ function toFinding(item: unknown, lineCount: number, request: ReviewRequest): Fi
     };
 }
 
-function parseFindings(content: string, lineCount: number, request: ReviewRequest): { findings: Finding[]; dropped: number } {
+function parseFindings(content: string, lines: string[], request: ReviewRequest): { findings: Finding[]; dropped: number } {
     let parsed: unknown;
     try {
         parsed = JSON.parse(content);
@@ -105,7 +132,7 @@ function parseFindings(content: string, lineCount: number, request: ReviewReques
     const items = (parsed as { findings?: unknown } | null)?.findings;
     if (!Array.isArray(items)) throw new Error('The model reply had no findings list');
 
-    const kept = items.map((item) => toFinding(item, lineCount, request)).filter((f): f is Finding => f !== undefined);
+    const kept = items.map((item) => toFinding(item, lines, request)).filter((f): f is Finding => f !== undefined);
     return {
         findings: kept.slice(0, appConfig.llmMaxFindings),
         dropped: items.length - kept.length
@@ -126,6 +153,7 @@ async function askOllama(request: ReviewRequest, lines: string[], signal?: Abort
                 keep_alive: appConfig.llmKeepAlive,
                 options: {
                     temperature: appConfig.llmTemperature,
+                    seed: appConfig.llmSeed,
                     num_ctx: appConfig.llmNumCtx,
                     num_predict: MAX_REPLY_TOKENS
                 },
@@ -187,7 +215,7 @@ export const llmAdapter: Analyzer = {
 
         const lines = splitLines(request.code);
         const content = await askOllama(request, lines, signal);
-        const { findings, dropped } = parseFindings(content, lines.length, request);
+        const { findings, dropped } = parseFindings(content, lines, request);
 
         createChildLogger({ requestId: request.requestId }).debug('LLM reply parsed', {
             model: appConfig.llmModel,
