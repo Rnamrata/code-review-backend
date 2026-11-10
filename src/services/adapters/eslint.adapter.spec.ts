@@ -87,6 +87,109 @@ describe('eslintAdapter', () => {
     });
   });
 
+  describe('plain Node and browser JavaScript', () => {
+    const messagesOf = async (code: string, filename = 'app.js') => (await review(code, filename)).map((f) => f.message);
+
+    it('does not flag require as an undefined variable', async () => {
+      const messages = await messagesOf("const fs = require('fs');\nexport const read = fs.readFileSync;\n");
+
+      expect(messages.some((m) => m.includes("'require' is not defined"))).toBe(false);
+    });
+
+    it('does not flag require() style imports in JavaScript', async () => {
+      const messages = await messagesOf("const fs = require('fs');\nexport const read = fs.readFileSync;\n");
+
+      expect(messages.some((m) => m.includes('no-require-imports'))).toBe(false);
+    });
+
+    it('does not flag require() style imports in a .jsx file', async () => {
+      const messages = await messagesOf("const fs = require('fs');\nexport const el = <p>{String(fs)}</p>;\n", 'view.jsx');
+
+      expect(messages.some((m) => m.includes('no-require-imports'))).toBe(false);
+    });
+
+    // The name is used as a plain value: ESLint's no-undef ignores names inside typeof.
+    it.each(['module', 'exports', 'process', 'console', '__dirname', '__filename', 'Buffer', 'setTimeout'])(
+      'knows the Node global %s',
+      async (name) => {
+        const messages = await messagesOf(`export const value = ${name};\n`);
+
+        expect(messages.some((m) => m.includes(`'${name}' is not defined`))).toBe(false);
+      }
+    );
+
+    it.each(['document', 'window', 'navigator', 'localStorage', 'fetch', 'alert'])(
+      'knows the browser global %s',
+      async (name) => {
+        const messages = await messagesOf(`export const value = ${name};\n`);
+
+        expect(messages.some((m) => m.includes(`'${name}' is not defined`))).toBe(false);
+      }
+    );
+
+    it('still reports a misspelled variable', async () => {
+      const findings = await review('export const total = prices.length;\n');
+
+      expect(findings.some((f) => f.message.includes("'prices' is not defined"))).toBe(true);
+    });
+
+    it('still reports require() style imports in TypeScript', async () => {
+      const messages = await messagesOf("const fs = require('fs');\nexport const read = fs.readFileSync;\n", 'app.ts');
+
+      expect(messages.some((m) => m.includes('no-require-imports'))).toBe(true);
+    });
+
+    it('keeps the real findings of a Node file', async () => {
+      const findings = await review(
+        "const { exec } = require('child_process');\nexec('ping ' + process.argv[2]);\neval(process.argv[3]);\n"
+      );
+
+      const rules = findings.map((f) => f.message);
+      expect(rules.some((m) => m.includes('security/detect-child-process'))).toBe(true);
+      expect(rules.some((m) => m.includes('security/detect-eval-with-expression'))).toBe(true);
+    });
+  });
+
+  describe('noisy security rules', () => {
+    it('rates object injection as low, not high', async () => {
+      const findings = await review('export const first = (items, i) => items[i];\n');
+
+      const hit = findings.find((f) => f.message.includes('security/detect-object-injection'));
+      expect(hit).toBeDefined();
+      expect(hit).toMatchObject({ severity: 'low', category: 'security' });
+    });
+
+    it('still rates other security rules as high', async () => {
+      const findings = await review('export const run = (input) => eval(input);\n');
+
+      const hit = findings.find((f) => f.message.includes('security/detect-eval-with-expression'));
+      expect(hit?.severity).toBe('high');
+    });
+  });
+
+  describe('repeated findings', () => {
+    it('reports one finding when the same rule fires twice on a line with the same message', async () => {
+      const findings = await review('export const cost = (items, i) => items[i].price * items[i].qty;\n', 'cart.ts');
+
+      const hits = findings.filter((f) => f.message.includes('security/detect-object-injection'));
+      expect(hits).toHaveLength(1);
+    });
+
+    it('keeps findings that differ in message on the same line', async () => {
+      const findings = await review('var unused = 1;\n', 'x.ts');
+
+      const onLineOne = findings.filter((f) => f.line === 1);
+      expect(onLineOne.length).toBeGreaterThan(1);
+    });
+
+    it('keeps the same message on different lines', async () => {
+      const findings = await review('export const a = (items, i) => items[i];\nexport const b = (items, i) => items[i];\n');
+
+      const hits = findings.filter((f) => f.message.includes('security/detect-object-injection'));
+      expect(hits.map((f) => f.line)).toEqual([1, 2]);
+    });
+  });
+
   describe('syntax errors', () => {
     it('reports one high severity bug for code that does not parse', async () => {
       const findings = await review('const = ;\n');
