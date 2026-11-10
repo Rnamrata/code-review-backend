@@ -18,15 +18,15 @@ POST /review  { filename, language, code }
       |             (own timeout each; a failure becomes a warning)
       |-- ESLint adapter   JavaScript / TypeScript
       |-- Ruff adapter     Python
-      |-- LLM adapter      planned
+      |-- LLM adapter      optional, via Ollama (off by default)
       |
   merger          de-duplicate across analyzers, sort by severity
       |
   { findings, warnings, summary }
 ```
 
-Analysis comes from real tools (ESLint, Ruff); the service only translates their
-output into one `Finding` shape. Submitted code is never executed or saved.
+Analysis comes from real tools (ESLint, Ruff) and, when enabled, a local model
+through Ollama; the service only translates their output into one `Finding` shape. Submitted code is never executed or saved.
 
 ## API
 
@@ -82,7 +82,8 @@ Returns `{ "status": "healthy", "timestamp": "..." }`.
 |---|---|---|
 | JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process |
 | Python (`.py`) | Ruff | needs the `ruff` binary |
-| Java (`.java`) | none yet | returns a warning |
+| Java (`.java`) | LLM only | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
+| Python, JavaScript, TypeScript, Java | LLM (optional) | a second opinion next to the linters |
 
 `language` accepts aliases such as `js`, `ts`, `py`; if it is unknown the file
 extension is used.
@@ -98,8 +99,28 @@ cp .env.example .env
 npm run dev          # http://localhost:4000
 ```
 
-Other scripts: `npm run build`, `npm start` (runs `dist/`), `npm run watch`.
-`npm test` is a placeholder for now.
+Other scripts: `npm run build`, `npm start` (runs `dist/`), `npm run watch`, `npm test`.
+
+## Optional LLM analyzer
+
+The linters work on their own. To add a local model as a second opinion:
+
+```bash
+ollama serve                       # leave it running
+ollama pull qwen2.5-coder:7b
+# in .env:  LLM_ENABLED=true
+npm run dev
+```
+
+Findings from the model have `"source": "llm"` and never rank above `high`.
+Anything the model returns that cannot be trusted (a line outside the file, an
+unknown severity, an empty message) is dropped. If Ollama is down, the model is
+missing, the file is too large for the context window or the call times out, the
+review still returns the linter findings plus a warning with the reason.
+
+The first review after a pause can take 15 s or more while Ollama loads the model.
+`LLM_KEEP_ALIVE` keeps it loaded between reviews. Ollama normally serves one request
+at a time, so a chat answer and a review share the queue.
 
 ## Configuration
 
@@ -112,6 +133,12 @@ Set in `.env` (see `.env.example`):
 | `CORS_ORIGIN` | `*` | allowed origin; restrict it outside local use |
 | `RUFF_BIN` | `ruff` | path to the Ruff binary |
 | `RUFF_TIMEOUT_MS` | `15000` | Ruff run limit |
+| `LLM_ENABLED` | `false` | turn the LLM analyzer on |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | where Ollama is running |
+| `LLM_MODEL` | `qwen2.5-coder:7b` | model used for reviews |
+| `LLM_TIMEOUT_MS` | `40000` | LLM run limit (keep it under the chatbot's 60 s) |
+| `LLM_NUM_CTX`, `LLM_KEEP_ALIVE` | `8192`, `30m` | context window sent with each request; how long Ollama keeps the model loaded |
+| `LLM_MAX_CODE_CHARS`, `LLM_MAX_FINDINGS` | `12000`, `20` | larger files skip the LLM with a warning; most findings kept per review |
 | `MAX_FILE_SIZE_MB` | `1` | largest accepted code size |
 | `ALLOWED_EXTENSIONS` | `.py,.js,.java,.ts,.jsx,.tsx` | accepted file extensions |
 | `LOG_LEVEL`, `LOG_TO_CONSOLE`, `LOG_TO_FILE`, `LOG_DIRECTORY` | `info`, `true`, `true`, `./logs` | logging |
@@ -149,8 +176,8 @@ and test on Node 20 and 22, plus an informational `npm audit`.
 
 ## Status
 
-ESLint and Ruff analysis are working. Tests, an LLM analyzer, hardening
-(rate limiting, CORS) and Docker are planned. See [roadmap.md](roadmap.md).
+ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
+Hardening (rate limiting, CORS) and Docker are planned. See [roadmap.md](roadmap.md).
 
 ## License
 

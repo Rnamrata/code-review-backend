@@ -5,6 +5,7 @@ import { createChildLogger, logPerformance, logger } from '../utils/logger.util'
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
+import { llmAdapter } from './adapters/llm.adapter';
 
 // The real adapters run ESLint and Ruff. Replace them, so these tests are about
 // how the orchestrator treats analyzers, not about what the analyzers find.
@@ -19,9 +20,13 @@ vi.mock('../utils/logger.util', () => {
   // The child logger is the same object, so one set of assertions covers both.
   return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn() };
 });
+vi.mock('./adapters/llm.adapter', () => ({
+  llmAdapter: { name: 'llm', supports: vi.fn(), analyze: vi.fn() }
+}));
 
 const eslint = vi.mocked(eslintAdapter);
 const ruff = vi.mocked(ruffAdapter);
+const llm = vi.mocked(llmAdapter);
 
 const TIMEOUT_MS = 45_000;
 
@@ -53,6 +58,8 @@ beforeEach(() => {
   ruff.supports.mockReset();
   eslint.analyze.mockReset();
   ruff.analyze.mockReset();
+  llm.supports.mockReset();
+  llm.analyze.mockReset();
 
   supports(eslint, 'javascript', 'typescript');
   supports(ruff, 'python');
@@ -273,6 +280,61 @@ describe('when an analyzer fails', () => {
     const result = await reviewCode(request());
 
     expect(result.summary.total).toBe(0);
+  });
+});
+
+describe('the LLM analyzer', () => {
+  it('runs next to the linters when it supports the language', async () => {
+    supports(llm, 'python');
+    ruff.analyze.mockResolvedValue([finding({ source: 'ruff', line: 1, message: 'from ruff' })]);
+    llm.analyze.mockResolvedValue([finding({ source: 'llm', line: 5, message: 'from llm' })]);
+
+    const result = await reviewCode(request());
+
+    expect(result.findings.map((f) => f.message).sort()).toEqual(['from llm', 'from ruff']);
+    expect(result.summary.bySource).toEqual({ ruff: 1, llm: 1 });
+  });
+
+  it('is left out when it does not support the language', async () => {
+    await reviewCode(request());
+
+    expect(llm.analyze).not.toHaveBeenCalled();
+  });
+
+  it('reviews a language the linters do not cover', async () => {
+    supports(llm, 'java');
+    llm.analyze.mockResolvedValue([finding({ source: 'llm', message: 'from llm' })]);
+
+    const result = await reviewCode(request({ language: 'java', filename: 'A.java' }));
+
+    expect(result.findings.map((f) => f.message)).toEqual(['from llm']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('keeps the linter findings and adds a warning when it fails', async () => {
+    supports(llm, 'python');
+    ruff.analyze.mockResolvedValue([finding({ source: 'ruff', message: 'from ruff' })]);
+    llm.analyze.mockRejectedValue(new Error('Ollama is unreachable at http://localhost:11434'));
+
+    const result = await reviewCode(request());
+
+    expect(result.findings.map((f) => f.message)).toEqual(['from ruff']);
+    expect(result.warnings).toEqual([{ source: 'llm', message: 'Ollama is unreachable at http://localhost:11434' }]);
+  });
+
+  it('uses its own timeout when it declares one', async () => {
+    vi.useFakeTimers();
+    supports(llm, 'python');
+    llm.analyze.mockReturnValue(new Promise(() => undefined));
+    (llm as { timeoutMs?: number }).timeoutMs = 40_000;
+
+    const pending = reviewCode(request());
+    await vi.advanceTimersByTimeAsync(40_000);
+    const result = await pending;
+
+    expect(result.warnings[0]).toMatchObject({ source: 'llm' });
+    expect(result.warnings[0].message).toMatch(/timed out after 40000 ms/);
+    (llm as { timeoutMs?: number }).timeoutMs = undefined;
   });
 });
 
