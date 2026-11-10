@@ -1,4 +1,5 @@
 import path from "path";
+import globals from 'globals';
 import { ESLint, Linter} from 'eslint';
 import js from "@eslint/js";
 import tseslint from 'typescript-eslint';
@@ -22,6 +23,17 @@ const config = tseslint.config (
         languageOptions: {
             parserOptions: { ecmaFeatures: { jsx: true } }
         }
+    },
+    {
+        // A request does not say where the code runs, so plain JavaScript gets the Node and
+        // the browser globals. Without them every `require`, `process` or `document` would
+        // be reported as an undefined variable. A real typo is still caught.
+        files: ['**/*.{js,jsx,mjs,cjs}'],
+        languageOptions: {
+            globals: { ...globals.node, ...globals.browser }
+        },
+        // `require()` is how plain Node JavaScript imports things. The rule stays on for TypeScript.
+        rules: { '@typescript-eslint/no-require-imports': 'off' }
     }
 );
 
@@ -50,7 +62,10 @@ function toCategory(message: Linter.LintMessage): string {
     return 'maintainability';
 }
 
+const NOISY_RULES = new Set(['security/detect-object-injection']);
+
 function toSeverity(message: Linter.LintMessage, category: string): Severity {
+    if (message.ruleId && NOISY_RULES.has(message.ruleId)) return 'low';
     if (message.fatal || category === 'security') return 'high';
     return message.severity === 2 ? 'medium' : 'low';
 }
@@ -66,6 +81,10 @@ function toFinding(message: Linter.LintMessage, request: ReviewRequest): Finding
         category,
         source: 'eslint'
     };
+}
+
+function isFirstOccurrence(finding: Finding, index: number, all: Finding[]): boolean {
+    return all.findIndex((other) => other.line === finding.line && other.message === finding.message) === index;
 }
 
 export const eslintAdapter: Analyzer = {
@@ -101,6 +120,7 @@ export const eslintAdapter: Analyzer = {
                 }
                 return message.line > 0;
             })
-            .map((message) => toFinding(message, request));
+            .map((message) => toFinding(message, request))
+            .filter(isFirstOccurrence)
     }
 };

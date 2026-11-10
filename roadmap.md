@@ -66,15 +66,13 @@ POST /review  { filename, language, code }
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Next: fix the ESLint noise on plain Node files, then run the chatbot against the service end to end.
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Next: run the chatbot against the service end to end.
 
 ### Known gaps
 
-- ESLint treats plain Node (CommonJS) `.js` files like TypeScript modules, so every `require` line produces `'require' is not defined` and a "require() style import is forbidden" finding. This drowns the real issues. Next fix, on `fix/eslint-commonjs`.
 - The LLM finds only about half of the known issues in the four sample files (Python, JavaScript, TypeScript, Java), so it supplements the linters and cannot replace them. Checked on 4 files only; try more real code.
 - A short quote (such as `}`) cannot be matched to a line, so that finding keeps the model's own line number, which can be one off.
 - A merged finding shows only the linter's source, so a reader cannot tell the LLM agreed. An optional field (for example `alsoFoundBy`) would show it.
-- ESLint can report the same rule twice on one line (for example two indexed accesses in one expression). The merger keeps same-source findings on purpose; collapsing identical ones would be tidier.
 - The chatbot reads only `findings`, so warnings such as "Ollama is unreachable" never reach the user. The real chatbot-to-service run has not been done yet.
 - Ollama normally serves one request at a time, so a chat answer and a review share a queue. The first review after a pause takes 15 s or more while the model loads (`LLM_KEEP_ALIVE` reduces this).
 - ESLint cannot be interrupted once running; its abort support only refuses to start if already aborted. The 1 MB input cap bounds the worst case.
