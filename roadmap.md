@@ -1,6 +1,6 @@
 # Code Review Backend - Roadmap
 
-**Last updated:** October 2026
+**Last updated:** November 2026
 **Architecture:** stateless, adapter-based review service
 **Consumer:** the chatbot, which sends code and reads `findings`
 
@@ -57,25 +57,26 @@ POST /review  { filename, language, code }
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 281 tests in 11 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 338 tests in 13 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
+| Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
+| Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete. Next is a short "prepare for the LLM" step and then Phase D.
+Nothing active. Phases A and B are complete and the pre-LLM hardening is merged. Next is Phase D, which waits on the Ollama-or-RAG decision.
 
 ### Known gaps
 
 - No LLM / RAG analyzer exists; `'llm'` is only a type and a merge priority.
-- An analyzer that throws synchronously (before returning a promise) escapes `reviewCode` and fails the whole review. Both current adapters are `async`, so they cannot do this, but a future one could.
-- Every analyzer shares one 45 s timeout, and the work behind a timed-out analyzer is not cancelled. The LLM needs its own limit and a cancellable call.
+- ESLint cannot be interrupted once running; its abort support only refuses to start if already aborted. The 1 MB input cap bounds the worst case.
 - Test coverage is not measured.
 - `fileTypes.ts` lists Java, C++ and C#, but no analyzer supports them. The `.cpp`, `.c` and `.cs` extensions are also not in the allow-list.
 - No rate limiting; CORS defaults to `*`.
 - Request validation is inline in the controller rather than a schema in a middleware.
 - The `maxFileSizeMB` limit (1 MB) is not coordinated with the `express.json` limit (2 MB).
 - Config keys with no consumer yet: `host`, the three complexity thresholds and the two rate-limit values. (The thresholds and rate limits are planned for Phases E and C; `host` has no plan and can go.)
-- Logger helpers `createChildLogger`, `logPerformance`, `logError` and `logSecurity` exist but are not called yet (see Phase C).
+- Logger helpers `logError` and `logSecurity` exist but are not called yet (see Phase C). `createChildLogger` and `logPerformance` are now in use.
 - `/health` returns `"healthy"` and does not check Ruff or the LLM service.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
@@ -124,8 +125,8 @@ Not done in this phase: a coverage report, and a test for a hung Ruff process be
 - [ ] Move body validation into a schema (zod or similar) in a middleware; remove inline checks.
 - [ ] Align the body-size limit with `MAX_FILE_SIZE_MB`.
 - [x] Return 413 for oversized payloads with the standard error shape (covered by the route specs).
-- [ ] Add request IDs to logs and responses.
-- [ ] Wire in the logger helpers that are already written:
+- [x] Add request IDs to logs and responses (`X-Request-Id`; a safe incoming value is kept, otherwise a UUID).
+- [ ] Wire in the logger helpers that are already written (`createChildLogger` and `logPerformance` are done):
   - `createChildLogger` in the controller, with a request ID, so every log line of one review is correlated across the orchestrator and adapters.
   - `logPerformance` around each analyzer and the whole review, with a per-call threshold (the default 1 s would warn on every LLM call).
   - `logError` in the error handler and for failed analyzers, so stack traces are logged consistently.
@@ -141,20 +142,20 @@ Not done in this phase: a coverage report, and a test for a hung Ruff process be
 
 **Open decision:** how the adapter reaches the model. The original architecture called the model server directly (Ollama `/api/chat` with a JSON-schema output); the items below assume a separate RAG service. Decide this first, because it changes the config, the adapter and what has to be running locally.
 
-Prerequisites, done first on their own branch so the adapter has a safe base:
+Prerequisites, done first on their own branch (merged) so the adapter has a safe base:
 
-- [ ] Per-analyzer timeouts: let each analyzer declare its own limit instead of the shared 45 s.
-- [ ] Make `analyze` cancellable (an abort signal), so a timed-out model call is stopped and not merely abandoned.
-- [ ] Treat a synchronous throw from an analyzer as a warning (wrap the call in the orchestrator, plus one test).
-- [ ] Wire `createChildLogger` and `logPerformance` (see Phase C) so analyzer timing is visible.
-- [ ] Re-add `isSeverity` to `finding.ts` for validating model output.
+- [x] Per-analyzer timeouts: let each analyzer declare its own limit instead of the shared 45 s.
+- [x] Make `analyze` cancellable (an abort signal), so a timed-out model call is stopped and not merely abandoned.
+- [x] Treat a synchronous throw from an analyzer as a warning (wrap the call in the orchestrator, plus one test).
+- [x] Wire `createChildLogger` and `logPerformance` (see Phase C) so analyzer timing is visible.
+- [x] Re-add `isSeverity` to `finding.ts` for validating model output.
 
 Adapter:
 
 - [ ] Add `src/config/rag.config.ts` (base URL, timeout, retries).
 - [ ] Write `src/services/adapters/llm.adapter.ts` implementing `Analyzer`:
   - Send code and language to the RAG service, ask for structured findings.
-  - Validate the response shape and drop malformed items: severity in the allowed set, line within the file. The `isSeverity` helper was removed from `finding.ts` as unused, so re-add it here when this adapter needs it.
+  - Validate the response shape and drop malformed items: severity in the allowed set, line within the file. Use `isSeverity` from `finding.ts`.
   - Tag results `source: 'llm'`; keep `suggestion` populated where available.
 - [ ] Register it; make it optional via env flag so linters still work if RAG is down.
 - [ ] Use a shorter timeout than the shared 45 s so the chatbot's 60 s limit holds.
