@@ -18,6 +18,13 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
   return value.toLowerCase() === 'true';
 };
 
+const getEnvFloat = (key: string, defaultValue: number): number => {
+  const value = process.env[key];
+  if (!value) return defaultValue;
+  const parsed = parseFloat(value);
+  return Number.isNaN(parsed) ? defaultValue : parsed;
+};
+
 export const appConfig = {
   // Server Configuration
   nodeEnv: getEnvString('NODE_ENV', 'production'),
@@ -44,6 +51,15 @@ export const appConfig = {
   cyclomaticComplexityThreshold: getEnvNumber('CYCLOMATIC_COMPLEXITY_THRESHOLD', 5),
   cognitiveComplexityThreshold: getEnvNumber('COGNITIVE_COMPLEXITY_THRESHOLD', 7),
   maxNestingDepth: getEnvNumber('MAX_NESTING_DEPTH', 2),
+  llmEnabled: getEnvBoolean('LLM_ENABLED', false),
+  ollamaBaseUrl: getEnvString('OLLAMA_BASE_URL', 'http://localhost:11434').replace(/\/+$/, ''),
+  llmModel: getEnvString('LLM_MODEL', 'qwen2.5-coder:7b'),
+  llmTemperature: getEnvFloat('LLM_TEMPERATURE', 0.2),
+  llmTimeoutMs: getEnvNumber('LLM_TIMEOUT_MS', 40000),
+  llmNumCtx: getEnvNumber('LLM_NUM_CTX', 8192),
+  llmKeepAlive: getEnvString('LLM_KEEP_ALIVE', '30m'),
+  llmMaxCodeChars: getEnvNumber('LLM_MAX_CODE_CHARS', 12000),
+  llmMaxFindings: getEnvNumber('LLM_MAX_FINDINGS', 20),
 
   // Rate Limiting
   rateLimitWindowMinutes: getEnvNumber('RATE_LIMIT_WINDOW_MINUTES', 15),
