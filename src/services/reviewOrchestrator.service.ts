@@ -5,9 +5,10 @@ import { mergeFindings } from './findingsMerger.service';
 import { buildSummary } from './reviewSummary.service';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
+import { llmAdapter } from './adapters/llm.adapter';
 
 // Analyzers get registered here as you build them (eslint, ruff, llm).
-const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter];
+const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter, llmAdapter];
 
 // Used by any analyzer that does not declare its own `timeoutMs`.
 // Stays well under the chatbot's 60 s timeout.
