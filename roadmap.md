@@ -57,23 +57,31 @@ POST /review  { filename, language, code }
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 464 tests in 14 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 496 tests in 14 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
 | LLM analyzer via Ollama: opt-in (`LLM_ENABLED`), JSON-schema reply, untrusted items dropped, severity capped at `high`, size limit, warning instead of failure | Done | `src/services/adapters/llm.adapter.ts` |
 | LLM line accuracy and repeatability: the model quotes the offending line and the adapter locates it by that text; `category` required; temperature 0 with a fixed seed | Done | `src/services/adapters/llm.adapter.ts`, `src/config/app.config.ts` |
+| Java checklist in the LLM prompt (`==` on strings, null results used unchecked, swallowed exceptions reported on the catch line); other languages get none | Done | `src/services/adapters/llm.adapter.ts` |
+| ESLint on plain JavaScript: Node and browser globals (`globals` package), `require()` allowed in JS but still flagged in TypeScript, `detect-object-injection` rated `low`, identical repeated findings collapsed | Done | `src/services/adapters/eslint.adapter.ts` |
+| Dependencies: unused `axios` removed and `npm audit fix` applied; production audit is 10 moderate, no critical or high | Done | `package.json` |
+| End-to-end check with the real chatbot: upload through the chatbot, findings returned with the LLM on | Done (chat in a real session and the review-service-down case still to check) | `llm-chatbot` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Next: run the chatbot against the service end to end.
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Next: finish the chatbot checks (chat about a finding in a real session; upload with the review service stopped) and fix the chatbot's headline summary, which a small model gets wrong.
 
 ### Known gaps
 
-- The LLM finds only about half of the known issues in the four sample files (Python, JavaScript, TypeScript, Java), so it supplements the linters and cannot replace them. Checked on 4 files only; try more real code.
+- The LLM finds only about half of the known issues, so it supplements the linters and cannot replace them. On 8 sample files (46 known issues) the linters and the LLM together report about 30; Java, which only the LLM reviews, reaches about 8 of 16 after the Java checklist. Checked on sample files only; try more real code.
+- Results depend on the model more than on settings. Temperatures 0, 0.1 and 0.2 (three seeds each) and merging two runs gave no gain on average, and any prompt change reshuffles which issues a small model reports (the catch-line wording gained one Java finding and lost another). A larger coder model is the main lever left.
+- The Java checklist does not catch unclosed readers and streams; adding it as a fourth item only added noise.
 - A short quote (such as `}`) cannot be matched to a line, so that finding keeps the model's own line number, which can be one off.
 - A merged finding shows only the linter's source, so a reader cannot tell the LLM agreed. An optional field (for example `alsoFoundBy`) would show it.
-- The chatbot reads only `findings`, so warnings such as "Ollama is unreachable" never reach the user. The real chatbot-to-service run has not been done yet.
+- The chatbot reads only `findings`, so warnings such as "Ollama is unreachable" never reach the user.
+- The chatbot's headline summary is written by `llama3.2` and can miscount (it reported "3 issues" for 2 findings and repeated one). The service already returns exact counts in `summary`, which the chatbot ignores. Fix in the chatbot repo: build the headline from those counts.
+- 10 moderate audit findings remain, all one `minimatch` advisory reached through ESLint. npm's only fix is downgrading ESLint 10 to 9, so it is left alone; the code path is not reachable because the adapter lints a virtual file name, never a caller-supplied glob.
 - Ollama normally serves one request at a time, so a chat answer and a review share a queue. The first review after a pause takes 15 s or more while the model loads (`LLM_KEEP_ALIVE` reduces this).
 - ESLint cannot be interrupted once running; its abort support only refuses to start if already aborted. The 1 MB input cap bounds the worst case.
 - Test coverage is not measured.
@@ -169,10 +177,12 @@ Adapter:
 - [x] Use a shorter timeout than the shared 45 s (40 s, `LLM_TIMEOUT_MS`) so the chatbot's 60 s limit holds.
 - [x] Tune the merger on real output: merge across analyzers within one line when both categories are known and equal, pick the closest candidate, and keep a linter's severity over the model's.
 - [x] Make results repeatable: temperature 0 with a fixed seed.
+- [x] Java checklist in the prompt for Java requests only. On three Java samples (16 known issues) it found 8 instead of 5.
+- [x] Try other settings: temperatures 0.1 and 0.2 with three seeds each, and merging two runs. No gain on average (about 30 of 46 known issues across 8 files in every case), so the defaults stay at temperature 0 and seed 42. At temperature 0 the seed has no effect.
 
 **Done when:** a review returns linter and LLM findings together, an Ollama outage yields a warning, and duplicates between sources are merged. All three hold.
 
-**Measured** on four sample files (Python, JavaScript, TypeScript, Java) with `qwen2.5-coder:7b`, two runs each:
+**Measured** with an experiment harness (temperature 0, seed 7) on four sample files (Python, JavaScript, TypeScript, Java) with `qwen2.5-coder:7b`, two runs each:
 
 | | Before tuning | After tuning |
 |---|---|---|
@@ -180,7 +190,9 @@ Adapter:
 | Known issues reported | 22 of 50 | 28 of 50 |
 | Files with identical results across two runs | 2 of 4 | 4 of 4 |
 
-Still open in this area: more real-world samples, and showing when the LLM agreed with a linter (see Known gaps).
+On the shipped settings (temperature 0, seed 42), run through the real service: all four files gave identical results across two runs, all 7 findings that only the LLM reported were on the correct line, and the linters and the LLM together reported 17 of 25 known issues.
+
+Still open in this area: more real-world samples, a larger model for Java, and showing when the LLM agreed with a linter (see Known gaps).
 
 ### Phase E - Broader language and rule coverage
 
