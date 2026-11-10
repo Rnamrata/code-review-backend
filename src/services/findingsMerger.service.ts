@@ -9,20 +9,50 @@ const SOURCE_PRIORITY: Record<string, number> = {
 
 const priorityOf = (f: Finding) => SOURCE_PRIORITY[f.source ?? 'llm'] ?? 1;
 
-// The same issue means: same file and line, found by DIFFERENT analyzers,
-// with compatible categories. Findings from one analyzer are never merged,
+// A model often points one line away from where a linter points at the same problem.
+const LINE_TOLERANCE = 1;
+
+// On the same line a missing category is no obstacle. One line apart there is less to go on,
+// so both categories must be known and equal (a hard-coded token next to an unused variable
+// are two different problems).
+const categoriesFit = (a: Finding, b: Finding): boolean =>
+    a.category && b.category ? a.category === b.category : a.line === b.line;
+
+// The same issue means: same file, found by DIFFERENT analyzers, on the same line or one
+// line apart, with fitting categories. Findings from one analyzer are never merged,
 // even on the same line, because they are separate rules.
 const isSameIssue = (a: Finding, b: Finding): boolean =>
     a.file === b.file &&
-    a.line === b.line &&
     a.source !== b.source &&
-    (!a.category || !b.category || a.category === b.category);
+    Math.abs(a.line - b.line) <= LINE_TOLERANCE &&
+    categoriesFit(a, b);
 
-// Keep the more precise source's wording, the higher severity, and any fix text.
+// Keep the more precise source's wording, line and fix text. A linter's severity is
+// calibrated and a model's is a guess, so a linter's rating stands; between equals the
+// higher one wins.
 function combine(a: Finding, b: Finding): Finding {
     const [winner, loser] = priorityOf(b) < priorityOf(a) ? [b, a] : [a, b];
-    const severity = SEVERITY_ORDER[a.severity] <= SEVERITY_ORDER[b.severity] ? a.severity : b.severity;
+    const severity =
+        priorityOf(a) === priorityOf(b)
+            ? SEVERITY_ORDER[a.severity] <= SEVERITY_ORDER[b.severity] ? a.severity : b.severity
+            : winner.severity;
     return { ...winner, severity, suggestion: winner.suggestion ?? loser.suggestion };
+}
+
+// Of the findings that could be the same issue, the one on the closest line.
+function closestMatch(merged: Finding[], matched: Set<number>, finding: Finding): number {
+    let best = -1;
+    let bestDistance = Infinity;
+
+    merged.forEach((existing, index) => {
+        if (matched.has(index) || !isSameIssue(existing, finding)) return;
+        const distance = Math.abs(existing.line - finding.line);
+        if (distance < bestDistance) {
+            best = index;
+            bestDistance = distance;
+        }
+    });
+    return best;
 }
 
 export function mergeFindings(lists: Finding[][]): Finding[] {
@@ -34,9 +64,7 @@ export function mergeFindings(lists: Finding[][]): Finding[] {
         const matched = new Set<number>(); // indexes already absorbed by this list
 
         for (const finding of list) {
-            const index = merged.findIndex(
-                (existing, i) => !matched.has(i) && isSameIssue(existing, finding)
-            );
+            const index = closestMatch(merged, matched, finding);
 
             if (index === -1) {
                 merged.push(finding);
