@@ -138,6 +138,38 @@ describe('how the adapter starts Ruff', () => {
   });
 });
 
+describe('cancelling', () => {
+  it('hands the abort signal to the process', async () => {
+    stub({ stdout: '[]', code: 0 });
+    const controller = new AbortController();
+
+    await ruffAdapter.analyze(request(), controller.signal);
+
+    const options = spawnMock.mock.calls[0][2] as { signal?: AbortSignal };
+    expect(options.signal).toBe(controller.signal);
+  });
+
+  it('runs without a signal too', async () => {
+    stub({ stdout: '[]', code: 0 });
+
+    await ruffAdapter.analyze(request());
+
+    const options = spawnMock.mock.calls[0][2] as { signal?: AbortSignal };
+    expect(options.signal).toBeUndefined();
+  });
+
+  it('fails with the abort error when the process is aborted', async () => {
+    const error: NodeJS.ErrnoException = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    stub({ error });
+
+    await expect(ruffAdapter.analyze(request(), new AbortController().signal)).rejects.toThrow(
+      'The operation was aborted'
+    );
+  });
+});
+
 describe('when Ruff cannot be used', () => {
   it('explains that the binary was not found and how to point at it', async () => {
     const error: NodeJS.ErrnoException = new Error('spawn ruff ENOENT');

@@ -5,6 +5,7 @@ export interface ReviewRequest {
     safeFilename: string;   // sanitized; only for temp files or paths on disk
     language: string;
     code: string;
+    requestId?: string; 
 }
 
 // Non-fatal problems: one analyzer failed or timed out, but the review still returned.
@@ -30,6 +31,8 @@ export interface ReviewResponse {
 // Every analyzer (ESLint, Ruff, LLM) implements this same shape.
 export interface Analyzer {
     name: FindingSource;
+    timeoutMs?: number;
     supports(language: string): boolean;
-    analyze(request: ReviewRequest): Promise<Finding[]>;
+    analyze(request: ReviewRequest, signal?: AbortSignal): Promise<Finding[]>;
 }
+

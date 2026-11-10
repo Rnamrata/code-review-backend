@@ -56,7 +56,8 @@ function toFinding(d: RuffDiagnostic, request: ReviewRequest): Finding {
     };
 }
 
-function runRuff(request: ReviewRequest): Promise<RuffDiagnostic[]> {
+function runRuff(request: ReviewRequest, signal?: AbortSignal): 
+Promise<RuffDiagnostic[]> {
     return new Promise ((resolve, reject) => {
         const args = [
             'check',
@@ -74,6 +75,7 @@ function runRuff(request: ReviewRequest): Promise<RuffDiagnostic[]> {
         // The submitted code is only ever written to stdin, never executed or saved.
         const child = spawn(appConfig.ruffBin, args,  {
             timeout: appConfig.ruffTimeoutMs,
+            signal,
             stdio: ['pipe','pipe', 'pipe']
         });
 
@@ -139,8 +141,9 @@ export const ruffAdapter: Analyzer = {
         return language === SUPPORTED_LANGUAGES.PYTHON;
     },
 
-    async analyze(request: ReviewRequest): Promise<Finding[]> {
-        const diagnostic = (await runRuff(request)).filter((d) => d.location.row > 0);
+    async analyze(request: ReviewRequest, signal?: AbortSignal): 
+    Promise<Finding[]> {
+        const diagnostic = (await runRuff(request, signal)).filter((d) => d.location.row > 0);
 
         // One syntax mistake can produce several entries ("...", "unexpected EOF").
         // Keep only the first, and report nothing else: later findings would be noise.

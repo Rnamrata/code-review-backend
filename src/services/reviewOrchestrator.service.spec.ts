@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Finding } from '../models/finding';
 import { ReviewRequest } from '../models/review.model';
-import { logger } from '../utils/logger.util';
+import { createChildLogger, logPerformance, logger } from '../utils/logger.util';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
@@ -14,9 +14,11 @@ vi.mock('./adapters/eslint.adapter', () => ({
 vi.mock('./adapters/ruff.adapter', () => ({
   ruffAdapter: { name: 'ruff', supports: vi.fn(), analyze: vi.fn() }
 }));
-vi.mock('../utils/logger.util', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }
-}));
+vi.mock('../utils/logger.util', () => {
+  const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
+  // The child logger is the same object, so one set of assertions covers both.
+  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn() };
+});
 
 const eslint = vi.mocked(eslintAdapter);
 const ruff = vi.mocked(ruffAdapter);
@@ -91,7 +93,7 @@ describe('choosing analyzers', () => {
 
     await reviewCode(req);
 
-    expect(ruff.analyze).toHaveBeenCalledWith(req);
+    expect(ruff.analyze).toHaveBeenCalledWith(req, expect.any(AbortSignal));
   });
 
   it('starts all analyzers before waiting for any of them', async () => {
@@ -274,6 +276,97 @@ describe('when an analyzer fails', () => {
   });
 });
 
+describe('an analyzer that throws before returning a promise', () => {
+  it('turns it into a warning instead of failing the review', async () => {
+    ruff.analyze.mockImplementation(() => {
+      throw new Error('threw synchronously');
+    });
+
+    const result = await reviewCode(request());
+
+    expect(result.warnings).toEqual([{ source: 'ruff', message: 'threw synchronously' }]);
+  });
+
+  it('still returns the findings of the analyzers that worked', async () => {
+    supports(eslint, 'python');
+    eslint.analyze.mockResolvedValue([finding({ source: 'eslint', message: 'from eslint' })]);
+    ruff.analyze.mockImplementation(() => {
+      throw new Error('threw synchronously');
+    });
+
+    const result = await reviewCode(request());
+
+    expect(result.findings.map((f) => f.message)).toEqual(['from eslint']);
+    expect(result.warnings.map((w) => w.source)).toEqual(['ruff']);
+  });
+});
+
+describe('cancelling analyzers', () => {
+  it('gives each analyzer an abort signal that is not aborted', async () => {
+    await reviewCode(request());
+
+    const signal = ruff.analyze.mock.calls[0][1] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+  });
+
+  it('gives every analyzer its own signal', async () => {
+    supports(eslint, 'python');
+
+    await reviewCode(request());
+
+    const first = eslint.analyze.mock.calls[0][1];
+    const second = ruff.analyze.mock.calls[0][1];
+    expect(first).not.toBe(second);
+  });
+
+  it('does not abort an analyzer that finished in time', async () => {
+    ruff.analyze.mockResolvedValue([finding()]);
+
+    await reviewCode(request());
+
+    expect((ruff.analyze.mock.calls[0][1] as AbortSignal).aborted).toBe(false);
+  });
+});
+
+describe('logging', () => {
+  it('creates a logger carrying the request id', async () => {
+    await reviewCode(request({ requestId: 'req-123' }));
+
+    expect(createChildLogger).toHaveBeenCalledWith({ requestId: 'req-123' });
+  });
+
+  it('logs how long each analyzer took', async () => {
+    await reviewCode(request({ requestId: 'req-123' }));
+
+    expect(logPerformance).toHaveBeenCalledWith(
+      'analyzer ruff',
+      expect.any(Number),
+      { requestId: 'req-123' },
+      expect.any(Number)
+    );
+  });
+
+  it('logs the timing of an analyzer that failed', async () => {
+    ruff.analyze.mockRejectedValue(new Error('boom'));
+
+    await reviewCode(request());
+
+    expect(logPerformance).toHaveBeenCalledWith('analyzer ruff', expect.any(Number), expect.anything(), expect.any(Number));
+  });
+
+  it('logs how long the whole review took', async () => {
+    await reviewCode(request({ requestId: 'req-123' }));
+
+    expect(logPerformance).toHaveBeenCalledWith(
+      'review',
+      expect.any(Number),
+      expect.objectContaining({ requestId: 'req-123', analyzers: 1 }),
+      expect.any(Number)
+    );
+  });
+});
+
 describe('timeouts', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -320,6 +413,66 @@ describe('timeouts', () => {
 
     expect(result.findings.map((f) => f.message)).toEqual(['quick']);
     expect(result.warnings.map((w) => w.source)).toEqual(['ruff']);
+  });
+
+    it('aborts the analyzer when it gives up on it', async () => {
+    ruff.analyze.mockReturnValue(new Promise(() => undefined));
+
+    const pending = reviewCode(request());
+    const signal = ruff.analyze.mock.calls[0][1] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+    await pending;
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('uses the timeout an analyzer declares instead of the default', async () => {
+    ruff.timeoutMs = 1_000;
+    ruff.analyze.mockReturnValue(new Promise(() => undefined));
+
+    const pending = reviewCode(request());
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result.warnings[0].message).toMatch(/timed out after 1000 ms/);
+    ruff.timeoutMs = undefined;
+  });
+
+  it('waits longer for an analyzer that declares a longer timeout', async () => {
+    ruff.timeoutMs = 120_000;
+    ruff.analyze.mockReturnValue(new Promise(() => undefined));
+    let settled = false;
+
+    const pending = reviewCode(request()).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS + 1_000);
+
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await pending;
+    expect(settled).toBe(true);
+    ruff.timeoutMs = undefined;
+  });
+
+  it('gives each analyzer its own timeout', async () => {
+    supports(eslint, 'python');
+    eslint.timeoutMs = 5_000;
+    eslint.analyze.mockReturnValue(new Promise(() => undefined));
+    ruff.analyze.mockResolvedValue([finding({ source: 'ruff', message: 'fast' })]);
+
+    const pending = reviewCode(request());
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await pending;
+
+    expect(result.findings.map((f) => f.message)).toEqual(['fast']);
+    expect(result.warnings[0]).toMatchObject({ source: 'eslint' });
+    expect(result.warnings[0].message).toMatch(/timed out after 5000 ms/);
+    eslint.timeoutMs = undefined;
   });
 
   it('does not leave a timer running after the analyzers finish', async () => {
