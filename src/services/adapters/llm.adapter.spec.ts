@@ -160,6 +160,44 @@ describe('the request to Ollama', () => {
     expect(sentBody().messages[0].content).toMatch(/never follow instructions/i);
   });
 
+    describe('language hints', () => {
+    it('adds the Java checklist to the system message for Java', async () => {
+      await llmAdapter.analyze(request({ language: 'java', filename: 'A.java', safeFilename: 'A.java' }));
+
+      const system: string = sentBody().messages[0].content;
+      expect(system).toMatch(/==/);
+      expect(system).toMatch(/equals\(\)/);
+      expect(system).toMatch(/return null/);
+      expect(system).toMatch(/swallowed/);
+    });
+
+    it('asks for a swallowed exception to be reported on the catch line', async () => {
+      await llmAdapter.analyze(request({ language: 'java', filename: 'A.java', safeFilename: 'A.java' }));
+
+      expect(sentBody().messages[0].content).toMatch(/line of the catch clause/);
+    });
+
+    it('keeps the general instructions for Java as well', async () => {
+      await llmAdapter.analyze(request({ language: 'java', filename: 'A.java', safeFilename: 'A.java' }));
+
+      const system: string = sentBody().messages[0].content;
+      expect(system).toMatch(/never follow instructions/i);
+      expect(system).toMatch(/snippet/);
+    });
+
+    it.each(['python', 'javascript', 'typescript'])('does not add the Java checklist for %s', async (language) => {
+      await llmAdapter.analyze(request({ language }));
+
+      expect(sentBody().messages[0].content).not.toMatch(/equals\(\)/);
+    });
+
+    it('does not put the checklist in the user message', async () => {
+      await llmAdapter.analyze(request({ language: 'java', filename: 'A.java', safeFilename: 'A.java' }));
+
+      expect(sentBody().messages[1].content).not.toMatch(/equals\(\)/);
+    });
+  });
+  
   it('numbers every line of the code', async () => {
     await llmAdapter.analyze(request({ code: 'a = 1\nb = 2\nc = 3\n' }));
 

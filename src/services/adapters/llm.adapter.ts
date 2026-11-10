@@ -33,6 +33,22 @@ Keep every message to one sentence. Add a short suggestion only when you know th
 For every finding, give its category and copy the exact text of the offending line, without its number, into the "snippet" field.
 If you find nothing wrong, return an empty findings list.`;
 
+// Problems a model tends to overlook unless it is told to look for them. Only the language
+// being reviewed gets its list, so the others are not nudged towards findings that do not apply.
+const LANGUAGE_HINTS: Record<string, string> = {
+    [SUPPORTED_LANGUAGES.JAVA]: [
+        'Also check for these common Java problems:',
+        '- strings compared with == or != instead of equals()',
+        '- a method that can return null whose result is used without a null check',
+        '- an exception that is swallowed (an empty catch block, or only printStackTrace) instead of handled or rethrown - report it on the line of the catch clause'
+    ].join('\n')
+};
+
+function buildSystemPrompt(language: string): string {
+    const hint = LANGUAGE_HINTS[language];
+    return hint ? `${SYSTEM_PROMPT}\n${hint}` : SYSTEM_PROMPT;
+}
+
 // Ollama constrains the reply to this shape, so parsing rarely fails.
 const REPLY_SCHEMA = {
     type: 'object',
@@ -158,7 +174,7 @@ async function askOllama(request: ReviewRequest, lines: string[], signal?: Abort
                     num_predict: MAX_REPLY_TOKENS
                 },
                 messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
+                    { role: 'system', content: buildSystemPrompt(request.language) },
                     { role: 'user', content: buildPrompt(request.language, lines) }
                 ]
             })
