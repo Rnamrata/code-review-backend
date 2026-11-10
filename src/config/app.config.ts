@@ -54,12 +54,13 @@ export const appConfig = {
   llmEnabled: getEnvBoolean('LLM_ENABLED', false),
   ollamaBaseUrl: getEnvString('OLLAMA_BASE_URL', 'http://localhost:11434').replace(/\/+$/, ''),
   llmModel: getEnvString('LLM_MODEL', 'qwen2.5-coder:7b'),
-  llmTemperature: getEnvFloat('LLM_TEMPERATURE', 0.2),
+  llmTemperature: getEnvFloat('LLM_TEMPERATURE', 0),
   llmTimeoutMs: getEnvNumber('LLM_TIMEOUT_MS', 40000),
   llmNumCtx: getEnvNumber('LLM_NUM_CTX', 8192),
   llmKeepAlive: getEnvString('LLM_KEEP_ALIVE', '30m'),
   llmMaxCodeChars: getEnvNumber('LLM_MAX_CODE_CHARS', 12000),
   llmMaxFindings: getEnvNumber('LLM_MAX_FINDINGS', 20),
+  llmSeed: getEnvNumber('LLM_SEED', 42),
 
   // Rate Limiting
   rateLimitWindowMinutes: getEnvNumber('RATE_LIMIT_WINDOW_MINUTES', 15),

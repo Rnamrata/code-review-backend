@@ -104,17 +104,38 @@ describe('mergeFindings', () => {
     });
 
     it.each([
-      ['linter low, llm high', 'low', 'high', 'high'],
+      ['linter low, llm high', 'low', 'high', 'low'],
       ['linter high, llm low', 'high', 'low', 'high'],
-      ['linter medium, llm critical', 'medium', 'critical', 'critical'],
+      ['linter medium, llm critical', 'medium', 'critical', 'medium'],
       ['same severity', 'medium', 'medium', 'medium']
-    ] as const)('takes the higher severity (%s)', (_label, linter, llm, expected) => {
+    ] as const)("keeps the linter's severity (%s)", (_label, linter, llm, expected) => {
       const [merged] = mergeFindings([
         [finding({ source: 'ruff', severity: linter })],
         [finding({ source: 'llm', severity: llm })]
       ]);
 
       expect(merged.severity).toBe(expected);
+    });
+
+    it("keeps the linter's severity when the LLM list comes first", () => {
+      const [merged] = mergeFindings([
+        [finding({ source: 'llm', severity: 'high' })],
+        [finding({ source: 'eslint', severity: 'low' })]
+      ]);
+
+      expect(merged.severity).toBe('low');
+    });
+
+    it.each([
+      ['eslint low, ruff high', 'low', 'high'],
+      ['eslint high, ruff low', 'high', 'low']
+    ] as const)('takes the higher severity when both are linters (%s)', (_label, first, second) => {
+      const [merged] = mergeFindings([
+        [finding({ source: 'eslint', severity: first })],
+        [finding({ source: 'ruff', severity: second })]
+      ]);
+
+      expect(merged.severity).toBe('high');
     });
 
     it("carries over the LLM's suggestion when the linter has none", () => {
@@ -145,6 +166,91 @@ describe('mergeFindings', () => {
     });
   });
 
+  describe('findings one line apart', () => {
+    it('merges findings from different analyzers when the LLM is one line after', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5 })],
+        [finding({ source: 'llm', line: 6 })]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('merges them when the LLM is one line before', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5 })],
+        [finding({ source: 'llm', line: 4 })]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it("keeps the linter's line", () => {
+      const [merged] = mergeFindings([
+        [finding({ source: 'llm', line: 6 })],
+        [finding({ source: 'ruff', line: 5 })]
+      ]);
+
+      expect(merged.line).toBe(5);
+      expect(merged.source).toBe('ruff');
+    });
+
+    it('keeps findings from different analyzers two lines apart separate', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5 })],
+        [finding({ source: 'llm', line: 7 })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('keeps different categories one line apart separate', () => {
+      const result = mergeFindings([
+        [finding({ source: 'eslint', line: 6, category: 'maintainability', message: 'TOKEN is never used' })],
+        [finding({ source: 'llm', line: 7, category: 'security', message: 'hard-coded token' })]
+      ]);
+
+      expect(result.map((f) => f.message).sort()).toEqual(['TOKEN is never used', 'hard-coded token']);
+    });
+
+    it('keeps a finding with no category separate when the lines differ', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5, category: 'bug' })],
+        [finding({ source: 'llm', line: 6, category: undefined })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('never merges findings from the same analyzer one line apart', () => {
+      const result = mergeFindings([[finding({ source: 'ruff', line: 5 }), finding({ source: 'ruff', line: 6 })]]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('matches the closest of two candidates', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5, message: 'five' }), finding({ source: 'ruff', line: 6, message: 'six' })],
+        [finding({ source: 'llm', line: 6, suggestion: 'from llm' })]
+      ]);
+
+      const five = result.find((f) => f.message === 'five');
+      const six = result.find((f) => f.message === 'six');
+      expect(result).toHaveLength(2);
+      expect(six?.suggestion).toBe('from llm');
+      expect(five?.suggestion).toBeUndefined();
+    });
+
+    it('lets one linter finding absorb only one LLM finding', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 5 })],
+        [finding({ source: 'llm', line: 4, message: 'first' }), finding({ source: 'llm', line: 6, message: 'second' })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+  });
+
   describe('findings that look similar but are not the same issue', () => {
     it('keeps different categories on the same line apart', () => {
       const result = mergeFindings([
@@ -155,10 +261,10 @@ describe('mergeFindings', () => {
       expect(result).toHaveLength(2);
     });
 
-    it('keeps different lines apart', () => {
+    it('keeps lines more than one apart separate', () => {
       const result = mergeFindings([
         [finding({ source: 'ruff', line: 3 })],
-        [finding({ source: 'llm', line: 4 })]
+        [finding({ source: 'llm', line: 5 })]
       ]);
 
       expect(result).toHaveLength(2);
