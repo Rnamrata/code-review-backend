@@ -7,9 +7,10 @@ import { reviewCode } from '../services/reviewOrchestrator.service';
 // The orchestrator is replaced, so these tests are about the HTTP contract:
 // what is accepted, what is rejected, and what is handed on.
 vi.mock('../services/reviewOrchestrator.service', () => ({ reviewCode: vi.fn() }));
-vi.mock('../utils/logger.util', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }
-}));
+vi.mock('../utils/logger.util', () => {
+  const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
+  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn() };
+});
 const reviewCodeMock = vi.mocked(reviewCode);
 
 const emptyResult = {
@@ -186,7 +187,8 @@ describe('POST /review: what the orchestrator receives', () => {
       filename: 'my file.py',
       safeFilename: 'my_file.py',
       language: 'python',
-      code: '  x = 1\r\n\r\n'
+      code: '  x = 1\r\n\r\n',
+      requestId: expect.any(String)
     });
   });
 
@@ -275,6 +277,60 @@ describe('POST /review: response', () => {
     expect(res.body.error).toBe('Internal server error');
     expect(JSON.stringify(res.body)).not.toContain('hunter2');
     expect(res.body).not.toHaveProperty('stack');
+  });
+});
+
+describe('request ids', () => {
+  it('sets an X-Request-Id header on a successful review', async () => {
+    const res = await request(app).post('/review').send(valid);
+
+    expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('sets the header on a rejected request too', async () => {
+    const res = await request(app).post('/review').send({ filename: 'a.py' });
+
+    expect(res.status).toBe(400);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('gives each request a different id', async () => {
+    const first = await request(app).post('/review').send(valid);
+    const second = await request(app).post('/review').send(valid);
+
+    expect(first.headers['x-request-id']).not.toBe(second.headers['x-request-id']);
+  });
+
+  it('hands the same id to the orchestrator that it returns to the caller', async () => {
+    const res = await request(app).post('/review').send(valid);
+
+    expect(reviewCodeMock.mock.calls[0][0].requestId).toBe(res.headers['x-request-id']);
+  });
+
+  it('keeps an id the caller sent', async () => {
+    const res = await request(app).post('/review').set('X-Request-Id', 'chatbot-42').send(valid);
+
+    expect(res.headers['x-request-id']).toBe('chatbot-42');
+    expect(reviewCodeMock.mock.calls[0][0].requestId).toBe('chatbot-42');
+  });
+
+  it.each([
+    ['has spaces'],
+    ['semi;colon'],
+    ['<script>alert(1)</script>'],
+    ['x'.repeat(65)]
+  ])('replaces an unsafe incoming id (%s)', async (incoming) => {
+    const res = await request(app).post('/review').set('X-Request-Id', incoming).send(valid);
+
+    expect(res.headers['x-request-id']).not.toBe(incoming);
+    expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('accepts an id of exactly 64 characters', async () => {
+    const id = 'a'.repeat(64);
+    const res = await request(app).post('/review').set('X-Request-Id', id).send(valid);
+
+    expect(res.headers['x-request-id']).toBe(id);
   });
 });
 

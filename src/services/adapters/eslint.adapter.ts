@@ -78,10 +78,14 @@ export const eslintAdapter: Analyzer = {
         );
     },
 
-    async analyze(request: ReviewRequest): Promise<Finding[]> {
+    async analyze(request: ReviewRequest, signal?: AbortSignal): 
+    Promise<Finding[]> {
         // A virtual path inside cwd: lintText never reads it, but ESLint uses the
         // extension to pick the parser and the cwd to decide the file isn't ignored.
         // safeFilename has no separators, so this can't escape the folder.
+        // is not start work that nobody is waiting for any more.
+        signal?.throwIfAborted();
+
         const filePath = path.join(process.cwd(), request.safeFilename);
 
         const results = await getESLint().lintText(request.code, { filePath });

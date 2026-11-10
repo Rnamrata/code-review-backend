@@ -1,17 +1,31 @@
 import { Request, Response } from 'express';
 import { appConfig } from '../config/app.config';
 import { HTTP_STATUS } from '../constants/httpStatus';
+import { randomUUID } from 'crypto';
 import { ReviewRequest } from '../models';
 import { reviewCode } from '../services/reviewOrchestrator.service';
 import { errorResponse } from '../utils/responseFormatter.util';
 import { Validator } from '../utils/validator.util';
-import { logger } from '../utils/logger.util';
+import { createChildLogger } from '../utils/logger.util';
 import { normalizeLanguage } from '../constants/fileTypes';
+
+// A caller may send its own id to follow one review across services.
+// Only a short, plain value is accepted, so it is safe to log and echo back.
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+
+const resolveRequestId = (req: Request): string => {
+    const incoming = req.get('X-Request-Id');
+    return incoming && REQUEST_ID_PATTERN.test(incoming) ? incoming : randomUUID();
+};
 
 const isNotEmptyString = (value: unknown): value is string =>
     typeof value === 'string' && value.trim().length >0;
 
 export const review = async (req: Request, res: Response): Promise<void> => {
+    const requestId = resolveRequestId(req);
+    res.setHeader('X-Request-Id', requestId);
+    const log = createChildLogger({ requestId });
+    
     const { filename, language, code } = req.body ?? {};
 
     if (!isNotEmptyString(filename) || !isNotEmptyString(language) || typeof code !== 'string') {
@@ -41,10 +55,11 @@ export const review = async (req: Request, res: Response): Promise<void> => {
         filename: filename.trim(),
         safeFilename: Validator.sanitizeFilename(filename),
         language: normalized ?? language.trim().toLowerCase(),
-        code
+        code,
+        requestId
     };
 
-    logger.info('Review requested', {filename: request.filename, language: request.language});
+    log.info('Review requested', {filename: request.filename, language: request.language});
 
     const result = await reviewCode(request);
     res.status(HTTP_STATUS.OK).json(result);

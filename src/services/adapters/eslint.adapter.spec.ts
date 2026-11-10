@@ -30,6 +30,23 @@ describe('eslintAdapter', () => {
     });
   });
 
+    describe('cancelling', () => {
+    it('does not start when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(eslintAdapter.analyze(request('var a = 1;\n'), controller.signal)).rejects.toThrow();
+    });
+
+    it('reviews normally when the signal has not been aborted', async () => {
+      const controller = new AbortController();
+
+      const findings = await eslintAdapter.analyze(request('var a = eval(input);\n'), controller.signal);
+
+      expect(findings.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('clean code', () => {
     it('returns no findings', async () => {
       expect(await review('export const answer = 42;\n')).toEqual([]);

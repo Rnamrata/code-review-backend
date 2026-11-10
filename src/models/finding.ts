@@ -20,3 +20,7 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
     info: 4
 };
 
+// Own keys only: a plain `in` check would accept "toString" and "constructor".
+export function isSeverity(value: unknown): value is Severity {
+    return typeof value === 'string' && Object.prototype.hasOwnProperty.call(SEVERITY_ORDER, value);
+}

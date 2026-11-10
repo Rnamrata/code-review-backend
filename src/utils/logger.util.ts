@@ -275,9 +275,10 @@ export const logSecurity = (
 export const logPerformance = (
   operation: string,
   duration: number,
-  metadata?: Record<string, any>
+  metadata?: Record<string, any>,
+  slowAfterMs: number = 1000
 ): void => {
-  const level = duration > 1000 ? 'warn' : 'debug';
+  const level = duration > slowAfterMs ? 'warn' : 'debug';
 
   logger.log(level, `⚡ Performance: ${operation}`, {
     operation,
