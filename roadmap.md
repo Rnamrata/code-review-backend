@@ -89,7 +89,7 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - Request validation is inline in the controller rather than a schema in a middleware.
 - Config keys with no consumer yet: the three complexity thresholds (planned for Phase E).
 - The logger helper `logError` exists but is not called yet (see Phase C). `createChildLogger`, `logPerformance` and `logSecurity` (rate-limit events) are in use.
-- Rate limits count requests by client address, in memory. Behind a reverse proxy every client appears with the proxy's address and shares one counter (a trust-proxy setting would be needed), and several instances would each count on their own.
+- Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
 - `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
@@ -149,7 +149,6 @@ Not done in this phase: a coverage report, and a test for a hung Ruff process be
 - [x] Default `NODE_ENV` to production-safe behaviour so stack traces never reach a client by accident.
 - [x] Graceful shutdown: on SIGINT or SIGTERM stop accepting connections, let running reviews finish (up to `SHUTDOWN_TIMEOUT_MS`), drop idle keep-alive connections, and stop at once on a second signal.
 - [x] Remove dead code: the old CORS settings and the unused `host` config key. The rate-limit values are now used; the complexity thresholds stay for Phase E. (The `enable*` analysis flags, the unused `ReviewResponse` import and the empty `sessions/` and `uploads/` directories are already removed.)
-
 - [x] `GET /ready` checks that Ruff runs and, when the LLM is on, that Ollama is reachable and has the configured model (200 or 503). `/health` stays cheap.
 - [x] `server.ts` loads the app inside a try/catch and exits with code 1 when startup fails; the logger would otherwise swallow the error and let the process end with 0.
 
