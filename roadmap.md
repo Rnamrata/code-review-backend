@@ -57,7 +57,7 @@ POST /review  { filename, language, code }
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 496 tests in 14 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 598 tests in 21 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
@@ -66,11 +66,13 @@ POST /review  { filename, language, code }
 | Java checklist in the LLM prompt (`==` on strings, null results used unchecked, swallowed exceptions reported on the catch line); other languages get none | Done | `src/services/adapters/llm.adapter.ts` |
 | ESLint on plain JavaScript: Node and browser globals (`globals` package), `require()` allowed in JS but still flagged in TypeScript, `detect-object-injection` rated `low`, identical repeated findings collapsed | Done | `src/services/adapters/eslint.adapter.ts` |
 | Dependencies: unused `axios` removed and `npm audit fix` applied; production audit is 10 moderate, no critical or high | Done | `package.json` |
-| End-to-end check with the real chatbot: upload through the chatbot, findings returned with the LLM on | Done (chat in a real session and the review-service-down case still to check) | `llm-chatbot` |
+| End-to-end check with the real chatbot: upload, chat about a finding in a real session, Ollama down and review service down all verified | Done | `llm-chatbot` |
+| Chatbot opening message built in code from the findings (exact counts, the review service's warnings shown, never called "clean" when a check did not run); 45 chatbot tests | Done | `llm-chatbot` repo: `src/modules/review_summary.py` |
+| Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Next: finish the chatbot checks (chat about a finding in a real session; upload with the review service stopped) and fix the chatbot's headline summary, which a small model gets wrong.
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done except schema validation and `logError` wiring. Next: those two items, then Phase F (Docker, OpenAPI spec).
 
 ### Known gaps
 
@@ -79,19 +81,17 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - The Java checklist does not catch unclosed readers and streams; adding it as a fourth item only added noise.
 - A short quote (such as `}`) cannot be matched to a line, so that finding keeps the model's own line number, which can be one off.
 - A merged finding shows only the linter's source, so a reader cannot tell the LLM agreed. An optional field (for example `alsoFoundBy`) would show it.
-- The chatbot reads only `findings`, so warnings such as "Ollama is unreachable" never reach the user.
-- The chatbot's headline summary is written by `llama3.2` and can miscount (it reported "3 issues" for 2 findings and repeated one). The service already returns exact counts in `summary`, which the chatbot ignores. Fix in the chatbot repo: build the headline from those counts.
 - 10 moderate audit findings remain, all one `minimatch` advisory reached through ESLint. npm's only fix is downgrading ESLint 10 to 9, so it is left alone; the code path is not reachable because the adapter lints a virtual file name, never a caller-supplied glob.
 - Ollama normally serves one request at a time, so a chat answer and a review share a queue. The first review after a pause takes 15 s or more while the model loads (`LLM_KEEP_ALIVE` reduces this).
 - ESLint cannot be interrupted once running; its abort support only refuses to start if already aborted. The 1 MB input cap bounds the worst case.
 - Test coverage is not measured.
 - `fileTypes.ts` lists Java, C++ and C#. Java is reviewed by the LLM only (when enabled); C++ and C# have no analyzer. The `.cpp`, `.c` and `.cs` extensions are also not in the allow-list.
-- No rate limiting; CORS defaults to `*`.
 - Request validation is inline in the controller rather than a schema in a middleware.
-- The `maxFileSizeMB` limit (1 MB) is not coordinated with the `express.json` limit (2 MB).
-- Config keys with no consumer yet: `host`, the three complexity thresholds and the two rate-limit values. (The thresholds and rate limits are planned for Phases E and C; `host` has no plan and can go.)
-- Logger helpers `logError` and `logSecurity` exist but are not called yet (see Phase C). `createChildLogger` and `logPerformance` are now in use.
-- `/health` returns `"healthy"` and does not check Ruff or Ollama.
+- Config keys with no consumer yet: the three complexity thresholds (planned for Phase E).
+- The logger helper `logError` exists but is not called yet (see Phase C). `createChildLogger`, `logPerformance` and `logSecurity` (rate-limit events) are in use.
+- Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
+- The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
+- `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
 ---
@@ -134,23 +134,25 @@ Not done in this phase: a coverage report, and a test for a hung Ruff process be
 
 ### Phase C - Hardening
 
-- [ ] `express-rate-limit` on `/review`.
-- [ ] Restrict CORS to the chatbot's origin via `CORS_ORIGIN`; fail on `*` in production.
+- [x] `express-rate-limit` on `/review`: `RATE_LIMIT_MAX_REQUESTS` per `RATE_LIMIT_WINDOW_MINUTES` per client address, 429 with the standard error shape and `Retry-After`, refusals logged with `logSecurity`.
+- [x] Restrict CORS: no browser origin is allowed unless `CORS_ORIGIN` lists some (the chatbot calls from its server, not a browser); `*` is refused in production and the process exits with code 1.
 - [ ] Move body validation into a schema (zod or similar) in a middleware; remove inline checks.
-- [ ] Align the body-size limit with `MAX_FILE_SIZE_MB`.
+- [x] Align the body-size limit with `MAX_FILE_SIZE_MB`: the JSON limit is twice the file limit (JSON escaping), at least 1 MB.
 - [x] Return 413 for oversized payloads with the standard error shape (covered by the route specs).
 - [x] Add request IDs to logs and responses (`X-Request-Id`; a safe incoming value is kept, otherwise a UUID).
 - [ ] Wire in the logger helpers that are already written (`createChildLogger` and `logPerformance` are done):
   - `createChildLogger` in the controller, with a request ID, so every log line of one review is correlated across the orchestrator and adapters.
   - `logPerformance` around each analyzer and the whole review, with a per-call threshold (the default 1 s would warn on every LLM call).
   - `logError` in the error handler and for failed analyzers, so stack traces are logged consistently.
-  - `logSecurity` for rejected requests (`invalid_request`) and, later, rate-limit events.
+  - `logSecurity` for rejected requests (`invalid_request`) and rate-limit events (rate-limit events are done).
   - Keep `logAnalysis` and `logRag` for Phase D, renaming `sessionId` to a request ID and `logRag` to `logLlm`.
 - [x] Default `NODE_ENV` to production-safe behaviour so stack traces never reach a client by accident.
-- [ ] Graceful shutdown: stop accepting connections and let in-flight reviews finish.
-- [ ] Remove dead code: the unused CORS header and the unused `host` config key. Keep the complexity thresholds (Phase E) and rate-limit values (this phase) and use them. (The `enable*` analysis flags, the unused `ReviewResponse` import and the empty `sessions/` and `uploads/` directories are already removed.)
+- [x] Graceful shutdown: on SIGINT or SIGTERM stop accepting connections, let running reviews finish (up to `SHUTDOWN_TIMEOUT_MS`), drop idle keep-alive connections, and stop at once on a second signal.
+- [x] Remove dead code: the old CORS settings and the unused `host` config key. The rate-limit values are now used; the complexity thresholds stay for Phase E. (The `enable*` analysis flags, the unused `ReviewResponse` import and the empty `sessions/` and `uploads/` directories are already removed.)
+- [x] `GET /ready` checks that Ruff runs and, when the LLM is on, that Ollama is reachable and has the configured model (200 or 503). `/health` stays cheap.
+- [x] `server.ts` loads the app inside a try/catch and exits with code 1 when startup fails; the logger would otherwise swallow the error and let the process end with 0.
 
-**Done when:** an abusive client is throttled, bad input gets a consistent 4xx, and a startup with unsafe CORS settings fails loudly.
+**Done when:** an abusive client is throttled, bad input gets a consistent 4xx, and a startup with unsafe CORS settings fails loudly. The first and last hold; the schema-validation item above is still open.
 
 ### Phase D - LLM analyzer (done)
 
@@ -206,7 +208,7 @@ Still open in this area: more real-world samples, a larger model for Java, and s
 ### Phase F - Operations
 
 - [ ] Dockerfile with Node and Ruff pinned; `docker-compose` for local run with Ollama.
-- [ ] Readiness check that verifies the Ruff binary and Ollama reachability (`/health` stays cheap).
+- [x] Readiness check that verifies the Ruff binary and Ollama reachability (`/health` stays cheap): done in Phase C as `GET /ready`.
 - [ ] Structured JSON logs and basic metrics (request count, analyzer duration, failure rate).
 - [ ] CI deploy or image-publish step.
 - [ ] OpenAPI spec for `POST /review` and a README with example requests.
@@ -244,7 +246,7 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | Foundation | Server, `/review`, orchestrator, merger, summary, ESLint adapter, CI | Done |
 | A | Ruff adapter | Done |
 | B | Tests and meaningful CI | Done |
-| C | Hardening | Started (413 shape, production-safe `NODE_ENV` and request IDs done) |
+| C | Hardening | Mostly done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs; schema validation and `logError` wiring open) |
 | D | LLM analyzer (Ollama) | Done (opt-in; tuned on 4 sample files) |
 | E | Language and rule coverage | Not started |
 | F | Operations and docs | Not started |
