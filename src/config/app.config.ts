@@ -29,7 +29,6 @@ export const appConfig = {
   // Server Configuration
   nodeEnv: getEnvString('NODE_ENV', 'production'),
   port: getEnvNumber('PORT', 4000),
-  host: getEnvString('HOST', 'localhost'),
 
   // Logging Configuration
   logLevel: getEnvString('LOG_LEVEL', 'info'),
@@ -39,6 +38,8 @@ export const appConfig = {
 
   // File Configuration
   maxFileSizeMB: getEnvNumber('MAX_FILE_SIZE_MB', 1),
+   // The request body carries the code inside JSON, which adds escaping, so it may be larger than the code.
+  jsonBodyLimit: `${Math.max(1, getEnvNumber('MAX_FILE_SIZE_MB', 1) * 2)}mb`,
   allowedExtensions: getEnvString('ALLOWED_EXTENSIONS', '.py,.js,.java,.ts,.jsx,.tsx')
     .split(',')
     .map((ext) => ext.trim()),
@@ -61,6 +62,14 @@ export const appConfig = {
   llmMaxCodeChars: getEnvNumber('LLM_MAX_CODE_CHARS', 12000),
   llmMaxFindings: getEnvNumber('LLM_MAX_FINDINGS', 20),
   llmSeed: getEnvNumber('LLM_SEED', 42),
+
+   // Browser access (CORS). Empty means no browser origin is allowed; "*" is refused in production.
+  corsOrigin: getEnvString('CORS_ORIGIN', ''),
+
+  // Shutdown and readiness
+  shutdownTimeoutMs: getEnvNumber('SHUTDOWN_TIMEOUT_MS', 50000),
+  readinessTimeoutMs: getEnvNumber('READINESS_TIMEOUT_MS', 3000),
+
 
   // Rate Limiting
   rateLimitWindowMinutes: getEnvNumber('RATE_LIMIT_WINDOW_MINUTES', 15),

@@ -1,11 +1,12 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 
 import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler.middleware';
+import { createCors } from './middlewares/cors.middleware';
+import { checkReadiness } from './services/readiness.service'
 import { appConfig } from './config/app.config';
 
 // Load environment variables
@@ -15,30 +16,15 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-app.use(
-    cors({
-        origin: process.env.CORS_ORIGIN || '*',
-        credentials: true,
-        methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-        allowedHeaders: [
-            'Accept',
-            'Origin',
-            'Authorization',
-            'Content-Type',
-            'X-Csrf-Token',
-            'X-Requested-With',
-            'Range'
-        ]
-    })
-);
+app.use(createCors(appConfig.corsOrigin, appConfig.nodeEnv));
 
 // Request logging is noise in test output
 if (appConfig.nodeEnv !== 'test') {
     app.use(morgan('dev'));
 }
 
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(express.json({ limit: appConfig.jsonBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: appConfig.jsonBodyLimit }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -46,6 +32,13 @@ app.get('/health', (req, res) => {
         status: 'healthy',
         timestamp: new Date().toISOString()
     });
+});
+
+// Readiness check: is Ruff installed and, when the LLM is on, is Ollama up with the model?
+// Kept apart from /health, which stays cheap and only says the process is running.
+app.get('/ready', async (req, res) => {
+    const readiness = await checkReadiness();
+    res.status(readiness.ready ? 200 : 503).json(readiness);
 });
 
 // Routes
