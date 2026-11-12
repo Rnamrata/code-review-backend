@@ -1,0 +1,455 @@
+openapi: 3.1.0
+
+info:
+  title: Code Review Service
+  version: 0.1.0
+  description: |
+    A small, stateless HTTP service. A client sends the code of one file; the service runs every
+    analyzer that supports its language (ESLint for JavaScript and TypeScript, Ruff for Python,
+    and optionally a local model through Ollama), merges what they find and returns one list of
+    findings. Submitted code is never executed or stored.
+
+    **Partial results beat failures.** If one analyzer fails or times out, the review still
+    returns what the others found, plus an entry in `warnings`. An empty `findings` list with a
+    warning does **not** mean the code is clean.
+
+    Any route that does not exist answers `404` with `{ "error": "Not Found", "message": "Cannot GET /path" }`.
+
+servers:
+  - url: http://localhost:4000
+    description: Local development (the port is set by `PORT`)
+
+tags:
+  - name: Review
+  - name: Operations
+
+paths:
+  /review:
+    post:
+      tags: [Review]
+      operationId: reviewCode
+      summary: Review one file
+      description: |
+        Validates the request, picks the analyzers that support the language, runs them in
+        parallel and returns the merged findings, sorted by severity and then by line.
+
+        Findings from different analyzers that point at the same problem (the same line, or one
+        line apart with the same category) are merged into one. The linter's wording, line and
+        severity win over the model's.
+
+        A request is counted against the rate limit even when it is rejected.
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          description: |
+            An id to follow this review through the service's logs. Up to 64 characters from
+            `A-Z a-z 0-9 . _ -`; anything else is ignored and a UUID is generated instead.
+          schema:
+            type: string
+            maxLength: 64
+            pattern: '^[A-Za-z0-9._-]{1,64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequest'
+            examples:
+              javascript:
+                summary: A JavaScript file
+                value:
+                  filename: app.js
+                  language: javascript
+                  code: "export function run(input) {\n  return eval(input);\n}\n"
+              python:
+                summary: A Python file, language given as an alias
+                value:
+                  filename: app.py
+                  language: py
+                  code: "import os\nos.system(cmd)\n"
+      responses:
+        '200':
+          description: The review finished. Check `warnings` for problems one analyzer had.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimit-Policy'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+              examples:
+                withFinding:
+                  summary: One security finding
+                  value:
+                    findings:
+                      - file: a.js
+                        line: 2
+                        message: eval with argument of type Identifier (security/detect-eval-with-expression)
+                        severity: high
+                        category: security
+                        source: eslint
+                    warnings: []
+                    summary:
+                      total: 1
+                      bySeverity: { critical: 0, high: 1, medium: 0, low: 0, info: 0 }
+                      bySource: { eslint: 1 }
+                      byCategory: { security: 1 }
+                languageNotSupported:
+                  summary: No analyzer supports the language, so nothing was checked
+                  value:
+                    findings: []
+                    warnings:
+                      - source: orchestrator
+                        message: No analyzers support this language "java"
+                    summary:
+                      total: 0
+                      bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
+                      bySource: {}
+                      byCategory: {}
+                oneAnalyzerFailed:
+                  summary: The model was unreachable; the linter findings still came back
+                  value:
+                    findings:
+                      - file: app.py
+                        line: 2
+                        message: Starting a process with a shell, possible injection detected (S605)
+                        severity: high
+                        category: security
+                        source: ruff
+                    warnings:
+                      - source: llm
+                        message: Ollama is unreachable at http://localhost:11434
+                    summary:
+                      total: 1
+                      bySeverity: { critical: 0, high: 1, medium: 0, low: 0, info: 0 }
+                      bySource: { ruff: 1 }
+                      byCategory: { security: 1 }
+        '400':
+          description: |
+            The request was not valid. `X-Request-Id` is present except when the body is not valid
+            JSON, which is rejected before the review starts.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidBody:
+                  summary: A field is missing or is not a string
+                  value:
+                    success: false
+                    error: Invalid request
+                    message: 'Body must be JSON: { filename, language, code } (all strings)'
+                    timestamp: '2026-11-12T04:28:37.590Z'
+                unsupportedFileType:
+                  summary: The file extension is not accepted
+                  value:
+                    success: false
+                    error: Unsupported file type
+                    message: 'Allowed extensions: .py, .js, .java, .ts, .jsx, .tsx'
+                    timestamp: '2026-11-12T04:28:37.591Z'
+                invalidCodeSize:
+                  summary: The code is empty or larger than the size limit
+                  value:
+                    success: false
+                    error: Invalid code size
+                    message: Code must be non-empty and within the configured size limits
+                    timestamp: '2026-11-12T04:28:37.592Z'
+        '413':
+          description: |
+            The request body is larger than the body limit, which is twice `MAX_FILE_SIZE_MB`
+            (at least 1 MB). Code over `MAX_FILE_SIZE_MB` but under the body limit gets a `400`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: request entity too large
+                timestamp: '2026-11-12T04:28:37.601Z'
+        '429':
+          description: |
+            This client address has started too many reviews in the current window
+            (`RATE_LIMIT_MAX_REQUESTS` per `RATE_LIMIT_WINDOW_MINUTES`). Try again after the
+            number of seconds in `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/Retry-After'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimit-Policy'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: Too many requests
+                message: Too many review requests. Try again later.
+                timestamp: '2026-11-12T04:28:37.602Z'
+        '500':
+          description: |
+            An unexpected error. Outside development the `error` text is generic and no `stack`
+            is returned; the details are only in the server log.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: Internal server error
+                timestamp: '2026-11-12T04:28:37.603Z'
+
+  /health:
+    get:
+      tags: [Operations]
+      operationId: getHealth
+      summary: Liveness check
+      description: Says the process is running. It is cheap and checks nothing else; use `/ready` for that.
+      responses:
+        '200':
+          description: The process is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                timestamp: '2026-11-12T04:28:37.603Z'
+
+  /ready:
+    get:
+      tags: [Operations]
+      operationId: getReadiness
+      summary: Readiness check
+      description: |
+        Checks what a review needs: that Ruff runs and, when `LLM_ENABLED=true`, that Ollama is
+        reachable and has the configured model. Answers `200` when every check passes and `503`
+        when one does not, so a container or load balancer can hold traffic back.
+      responses:
+        '200':
+          description: Every check passed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                ready: true
+                checks:
+                  ruff: { ok: true, detail: 'ruff 0.17.0' }
+                  ollama: { ok: true, detail: 'model qwen2.5-coder:7b is installed' }
+        '503':
+          description: At least one check failed. `checks` says which.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                ready: false
+                checks:
+                  ruff: { ok: true, detail: 'ruff 0.17.0' }
+                  ollama: { ok: false, detail: 'Ollama is unreachable' }
+
+components:
+  headers:
+    X-Request-Id:
+      description: 'The id of this request: the one the caller sent if it was valid, otherwise a generated UUID.'
+      schema:
+        type: string
+    Retry-After:
+      description: Seconds to wait before sending another review.
+      schema:
+        type: integer
+        minimum: 0
+    RateLimit:
+      description: The caller's current quota, in the IETF draft format, for example `limit=100, remaining=99, reset=900`.
+      schema:
+        type: string
+    RateLimit-Policy:
+      description: The quota and its window in seconds, for example `100;w=900`.
+      schema:
+        type: string
+
+  schemas:
+    ReviewRequest:
+      type: object
+      required: [filename, language, code]
+      additionalProperties: true
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          description: |
+            The name of the file. Its extension must be one of `ALLOWED_EXTENSIONS` (by default
+            `.py .js .java .ts .jsx .tsx`). It is used in the findings, and as a fallback to work out the language.
+          examples: [app.js]
+        language:
+          type: string
+          description: |
+            The language, for example `python`, `javascript`, `typescript` or `java`. Common aliases
+            such as `py`, `js` and `ts` are accepted. An unknown value falls back to the language of
+            the file extension.
+          examples: [javascript]
+        code:
+          type: string
+          minLength: 1
+          description: The source code of the file. It must be non-empty and no larger than `MAX_FILE_SIZE_MB` (1 MB by default).
+
+    Severity:
+      type: string
+      enum: [critical, high, medium, low, info]
+      description: Most serious first. Findings from the model are never rated above `high`.
+
+    FindingSource:
+      type: string
+      enum: [eslint, ruff, llm]
+
+    Finding:
+      type: object
+      required: [file, line, message, severity]
+      properties:
+        file:
+          type: string
+          description: The file name exactly as the caller sent it.
+        line:
+          type: integer
+          minimum: 1
+          description: The 1-based line the problem is on.
+        message:
+          type: string
+        severity:
+          $ref: '#/components/schemas/Severity'
+        category:
+          type: string
+          description: Usually `security`, `bug`, `maintainability` or `performance`.
+        source:
+          $ref: '#/components/schemas/FindingSource'
+        suggestion:
+          type: string
+          description: A suggested fix, when the analyzer has one.
+
+    Warning:
+      type: object
+      required: [source, message]
+      description: A non-fatal problem. The review still returned.
+      properties:
+        source:
+          description: Which part had the problem. `orchestrator` means the service itself, for example no analyzer supports the language.
+          oneOf:
+            - $ref: '#/components/schemas/FindingSource'
+            - type: string
+              const: orchestrator
+        message:
+          type: string
+
+    Summary:
+      type: object
+      required: [total, bySeverity, bySource, byCategory]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        bySeverity:
+          type: object
+          description: Always has all five severities, with 0 where there are none.
+          required: [critical, high, medium, low, info]
+          properties:
+            critical: { type: integer, minimum: 0 }
+            high: { type: integer, minimum: 0 }
+            medium: { type: integer, minimum: 0 }
+            low: { type: integer, minimum: 0 }
+            info: { type: integer, minimum: 0 }
+          additionalProperties: false
+        bySource:
+          type: object
+          description: Only the sources that produced findings.
+          propertyNames:
+            $ref: '#/components/schemas/FindingSource'
+          additionalProperties:
+            type: integer
+            minimum: 1
+        byCategory:
+          type: object
+          description: Findings per category; findings without one are counted as `uncategorized`.
+          additionalProperties:
+            type: integer
+            minimum: 1
+
+    ReviewResponse:
+      type: object
+      required: [findings, warnings, summary]
+      properties:
+        findings:
+          type: array
+          description: Sorted by severity, most serious first, then by line.
+          items:
+            $ref: '#/components/schemas/Finding'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+        summary:
+          $ref: '#/components/schemas/Summary'
+
+    ErrorResponse:
+      type: object
+      required: [success, error, timestamp]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+          description: A short description of what went wrong.
+        message:
+          type: string
+          description: More detail, when there is any.
+        timestamp:
+          type: string
+          format: date-time
+        stack:
+          type: string
+          description: A stack trace. Only present when the server runs with `NODE_ENV=development`.
+
+    HealthResponse:
+      type: object
+      required: [status, timestamp]
+      properties:
+        status:
+          type: string
+          const: healthy
+        timestamp:
+          type: string
+          format: date-time
+
+    CheckResult:
+      type: object
+      required: [ok, detail]
+      properties:
+        ok:
+          type: boolean
+        detail:
+          type: string
+
+    ReadinessResponse:
+      type: object
+      required: [ready, checks]
+      properties:
+        ready:
+          type: boolean
+        checks:
+          type: object
+          required: [ruff, ollama]
+          properties:
+            ruff:
+              $ref: '#/components/schemas/CheckResult'
+            ollama:
+              $ref: '#/components/schemas/CheckResult'
