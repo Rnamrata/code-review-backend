@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../app';
 import { appConfig } from '../config/app.config';
 import { reviewCode } from '../services/reviewOrchestrator.service';
+import { logSecurity } from '../utils/logger.util';
 
 // The orchestrator is replaced, so these tests are about the HTTP contract:
 // what is accepted, what is rejected, and what is handed on.
 vi.mock('../services/reviewOrchestrator.service', () => ({ reviewCode: vi.fn() }));
 vi.mock('../utils/logger.util', () => {
   const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
-  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn() };
+  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn(), logSecurity: vi.fn(), logError: vi.fn() };
 });
 const reviewCodeMock = vi.mocked(reviewCode);
 
@@ -331,6 +332,29 @@ describe('request ids', () => {
     const res = await request(app).post('/review').set('X-Request-Id', id).send(valid);
 
     expect(res.headers['x-request-id']).toBe(id);
+  });
+});
+
+describe('rejected requests are logged', () => {
+  it('logs an invalid_request security event for a bad body', async () => {
+    await request(app).post('/review').send({ filename: 'a.py' });
+
+    expect(logSecurity).toHaveBeenCalledWith('invalid_request', expect.objectContaining({ reason: 'Invalid request' }));
+  });
+
+  it('logs the reason for a file type that is not allowed', async () => {
+    await request(app).post('/review').send({ ...valid, filename: 'a.exe' });
+
+    expect(logSecurity).toHaveBeenCalledWith(
+      'invalid_request',
+      expect.objectContaining({ reason: 'Unsupported file type' })
+    );
+  });
+
+  it('logs nothing for an accepted request', async () => {
+    await request(app).post('/review').send(valid);
+
+    expect(logSecurity).not.toHaveBeenCalled();
   });
 });
 

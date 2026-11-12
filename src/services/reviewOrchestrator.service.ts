@@ -1,6 +1,6 @@
 import { Finding } from '../models/finding';
 import { Analyzer, ReviewRequest, ReviewResponse, ReviewWarning } from '../models/review.model';
-import { createChildLogger, logPerformance } from '../utils/logger.util';
+import { createChildLogger, logError, logPerformance } from '../utils/logger.util';
 import { mergeFindings } from './findingsMerger.service';
 import { buildSummary } from './reviewSummary.service';
 import { eslintAdapter } from './adapters/eslint.adapter';
@@ -80,7 +80,7 @@ export async function reviewCode(request: ReviewRequest): Promise<ReviewResponse
         if (result.status === 'fulfilled') {
             lists.push(result.value.map((finding) => ({ ...finding, file: request.filename })));
         } else {
-            log.warn('Analyzer failed', { analyzer: active[index].name, error: String(result.reason) });
+            logError(result.reason, { operation: 'analyzer', analyzer: active[index].name, requestId: request.requestId });
             warnings.push({
                 source: active[index].name,
                 message: String(result.reason?.message ?? result.reason)
