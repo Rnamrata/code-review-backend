@@ -22,8 +22,7 @@ COPY --from=ghcr.io/astral-sh/ruff:0.17.0 /ruff /usr/local/bin/ruff
 ENV NODE_ENV=production \
     PORT=4000 \
     RUFF_BIN=/usr/local/bin/ruff \
-    LOG_TO_FILE=false \
-    LOG_DIRECTORY=/tmp/logs
+    LOG_TO_FILE=false
 
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./
