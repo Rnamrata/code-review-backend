@@ -59,3 +59,19 @@ jobs:
       - name: Audit (informational)
         run: npm audit --omit=dev
         continue-on-error: true
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t code-review-backend:ci .
+
+      # Starts the image and checks health, a real review (ESLint and Ruff), the non-root user
+      # and a clean stop. `bash` is used so the script needs no executable bit.
+      - name: Smoke test the image
+        run: bash scripts/docker-smoke-test.sh code-review-backend:ci

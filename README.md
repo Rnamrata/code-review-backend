@@ -134,6 +134,40 @@ npm run dev          # http://localhost:4000
 
 Other scripts: `npm run build`, `npm start` (runs `dist/`), `npm run watch`, `npm test`.
 
+## Docker
+
+The image bundles Node, the compiled service and Ruff (pinned to 0.17.0). It runs as a normal
+user, on a read-only filesystem, and logs to the console.
+
+```bash
+docker build -t code-review-backend .
+docker run --rm -p 4000:4000 --stop-timeout 60 code-review-backend
+```
+
+Or with Docker Compose, which also sets the stop timeout, the read-only filesystem and the defaults:
+
+```bash
+docker compose up --build                     # ESLint and Ruff only
+REVIEW_LLM_ENABLED=true docker compose up --build    # also asks Ollama running on your machine
+```
+
+The service is then at `http://localhost:4000` (set `REVIEW_PORT` for another port). `docker ps`
+shows `healthy` once `GET /ready` passes: Ruff runs and, when the LLM is on, Ollama has the model.
+
+- **Ollama stays on your machine.** From a container the host is `host.docker.internal`, which is
+  the default `OLLAMA_BASE_URL` in the compose file. On a Mac this keeps the model on the GPU:
+  Ollama inside a container on macOS would run on the CPU only and be far slower. On Linux, start
+  Ollama with `OLLAMA_HOST=0.0.0.0` so the container can reach it.
+- **Stopping.** Give the container time to finish running reviews: `docker stop -t 60` (compose does
+  this for you). Docker's default of 10 s cuts a slow review off.
+- **Settings** are the variables in [Configuration](#configuration). With `docker run`, pass them with
+  `-e`. The compose file takes them as `REVIEW_PORT`, `REVIEW_LLM_ENABLED`, `REVIEW_OLLAMA_URL`,
+  `REVIEW_LLM_MODEL`, `REVIEW_RATE_LIMIT_MAX_REQUESTS` and `REVIEW_CORS_ORIGIN`. They have their own
+  names because Compose reads the `.env` in this folder, which is the one for `npm run dev`:
+  it names Ollama as `localhost`, which inside a container is the container itself.
+- Your local `.env` is never copied into the image.
+- To check an image: `bash scripts/docker-smoke-test.sh code-review-backend`
+
 ## Optional LLM analyzer
 
 The linters work on their own. To add a local model as a second opinion:
@@ -196,6 +230,8 @@ src/
     reviewSummary.service.ts
   utils/         logger, validator, response formatter
 planning-docs/   design notes for the models and dependencies
+scripts/         docker-smoke-test.sh, which checks a built image
+Dockerfile       the image (also docker-compose.yml to run it)
 openapi.yaml     the API contract (OpenAPI 3.1)
 roadmap.md       phases and current status
 ```
@@ -209,12 +245,13 @@ orchestrator. See `planning-docs/service-dependency-map.txt`.
 ## CI
 
 GitHub Actions runs on pull requests and on `master`: install, typecheck, build
-and test on Node 20 and 22, plus an informational `npm audit`.
+and test on Node 20 and 22, plus an informational `npm audit`. A second job builds the Docker
+image and smoke-tests it (`scripts/docker-smoke-test.sh`).
 
 ## Status
 
 ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
-Rate limiting, CORS, graceful shutdown and a readiness check are in place. The API contract is in [`openapi.yaml`](openapi.yaml). Docker is planned. See [roadmap.md](roadmap.md).
+Rate limiting, CORS, graceful shutdown and a readiness check are in place. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).
 
 ## License
 

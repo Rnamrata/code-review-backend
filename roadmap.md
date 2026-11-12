@@ -70,11 +70,12 @@ POST /review  { filename, language, code }
 | Chatbot opening message built in code from the findings (exact counts, the review service's warnings shown, never called "clean" when a check did not run); 51 chatbot tests | Done | `llm-chatbot` repo: `src/modules/review_summary.py` |
 | Chatbot repo: GitHub Actions CI (Python 3.12, tests on every pull request) and the Whisper speech model loaded lazily, so tests need no PyTorch or model download | Done | `llm-chatbot` repo: `.github/workflows/ci.yml` |
 | OpenAPI 3.1 spec of the API (`/review`, `/health`, `/ready`, every error and header) with `curl` examples in the README | Done | `openapi.yaml`, `README.md` |
+| Docker image (Node 22, Ruff pinned, non-root, read-only filesystem, health check on `/ready`), `docker-compose.yml`, and a CI job that builds the image and smoke-tests it; a stop with a review running waits for it (60 s grace period) | Done | `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke-test.sh`, `.github/workflows/ci.yml` |
 | Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done except schema validation and `logError` wiring. Next: Docker (Phase F), then those two items.
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done except schema validation and `logError` wiring. Next: those two items, then publishing the image.
 
 ### Known gaps
 
@@ -94,6 +95,10 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
 - `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
+- The Docker image is built and tested in CI but not published to a registry.
+- The Ruff version is pinned in two places, the `Dockerfile` and the CI workflow, and the two must be changed together.
+- The logger creates its log folder even with `LOG_TO_FILE=false`. The image works around it with `LOG_DIRECTORY=/tmp/logs`; a small code fix would create the folder only when file logging is on.
+- Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 60 s; with plain `docker run`, use `--stop-timeout 60` or `docker stop -t 60`.
 - `openapi.yaml` is written by hand. It was checked against the running service once, but nothing in CI keeps it in sync, so it can drift from the code. A contract test (real responses validated against the spec's schemas) would prevent that.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
@@ -210,10 +215,10 @@ Still open in this area: more real-world samples, a larger model for Java, and s
 
 ### Phase F - Operations
 
-- [ ] Dockerfile with Node and Ruff pinned; `docker-compose` for local run with Ollama.
+- [x] Dockerfile (Node 22, Ruff 0.17.0 pinned, non-root user, read-only filesystem, health check on `/ready`) and `docker-compose.yml` for a local run with Ollama on the host machine. CI builds the image and smoke-tests it (`scripts/docker-smoke-test.sh`). A compose-managed Ollama is not included: on macOS it would run on the CPU only.
 - [x] Readiness check that verifies the Ruff binary and Ollama reachability (`/health` stays cheap): done in Phase C as `GET /ready`.
 - [ ] Structured JSON logs and basic metrics (request count, analyzer duration, failure rate).
-- [ ] CI deploy or image-publish step.
+- [ ] CI deploy or image-publish step (CI builds and smoke-tests the image; nothing publishes it yet).
 - [x] OpenAPI spec (`openapi.yaml`, OpenAPI 3.1) for `/review`, `/health` and `/ready`, plus `curl` examples in the README. Checked against the real service: every example in the spec validates against its schemas, and the responses and headers of the running service match.
 
 **Done when:** a fresh machine can run the service with one command, and the API is documented.
@@ -252,4 +257,4 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | C | Hardening | Mostly done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs; schema validation and `logError` wiring open) |
 | D | LLM analyzer (Ollama) | Done (opt-in; tuned on 4 sample files) |
 | E | Language and rule coverage | Not started |
-| F | Operations and docs | Started (readiness check and OpenAPI spec done) |
+| F | Operations and docs | Started (readiness check, OpenAPI spec and Docker done) |

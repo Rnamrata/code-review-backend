@@ -1,0 +1,37 @@
+# Runs the review service in a container.
+#
+#   docker compose up --build                            linters only (ESLint and Ruff)
+#   REVIEW_LLM_ENABLED=true docker compose up --build    also asks Ollama running on your machine
+#
+# The settings below have their own REVIEW_ names on purpose. Docker Compose reads a .env file in
+# this folder for its ${...} values, and the service's own .env (used by `npm run dev`) has the
+# same names with other meanings: OLLAMA_BASE_URL=http://localhost:11434 would point the container
+# at itself. Set these in the shell, or in a .env file meant for compose.
+name: code-review-service
+
+services:
+  review-service:
+    build: .
+    image: code-review-backend:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${REVIEW_PORT:-4000}:4000"
+    environment:
+      NODE_ENV: production
+      LLM_ENABLED: ${REVIEW_LLM_ENABLED:-false}
+      # Ollama on the host machine. On Linux, Ollama must listen on 0.0.0.0 for this to work.
+      OLLAMA_BASE_URL: ${REVIEW_OLLAMA_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${REVIEW_LLM_MODEL:-qwen2.5-coder:7b}
+      RATE_LIMIT_MAX_REQUESTS: ${REVIEW_RATE_LIMIT_MAX_REQUESTS:-100}
+      CORS_ORIGIN: ${REVIEW_CORS_ORIGIN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # makes the name work on Linux too
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    # A review can take up to 40 s, and the service waits up to 50 s for running reviews
+    # (SHUTDOWN_TIMEOUT_MS). Docker's default of 10 s would kill them half way.
+    stop_grace_period: 60s
