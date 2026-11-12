@@ -67,12 +67,14 @@ POST /review  { filename, language, code }
 | ESLint on plain JavaScript: Node and browser globals (`globals` package), `require()` allowed in JS but still flagged in TypeScript, `detect-object-injection` rated `low`, identical repeated findings collapsed | Done | `src/services/adapters/eslint.adapter.ts` |
 | Dependencies: unused `axios` removed and `npm audit fix` applied; production audit is 10 moderate, no critical or high | Done | `package.json` |
 | End-to-end check with the real chatbot: upload, chat about a finding in a real session, Ollama down and review service down all verified | Done | `llm-chatbot` |
-| Chatbot opening message built in code from the findings (exact counts, the review service's warnings shown, never called "clean" when a check did not run); 45 chatbot tests | Done | `llm-chatbot` repo: `src/modules/review_summary.py` |
+| Chatbot opening message built in code from the findings (exact counts, the review service's warnings shown, never called "clean" when a check did not run); 51 chatbot tests | Done | `llm-chatbot` repo: `src/modules/review_summary.py` |
+| Chatbot repo: GitHub Actions CI (Python 3.12, tests on every pull request) and the Whisper speech model loaded lazily, so tests need no PyTorch or model download | Done | `llm-chatbot` repo: `.github/workflows/ci.yml` |
+| OpenAPI 3.1 spec of the API (`/review`, `/health`, `/ready`, every error and header) with `curl` examples in the README | Done | `openapi.yaml`, `README.md` |
 | Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done except schema validation and `logError` wiring. Next: those two items, then Phase F (Docker, OpenAPI spec).
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done except schema validation and `logError` wiring. Next: Docker (Phase F), then those two items.
 
 ### Known gaps
 
@@ -92,6 +94,7 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
 - `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
+- `openapi.yaml` is written by hand. It was checked against the running service once, but nothing in CI keeps it in sync, so it can drift from the code. A contract test (real responses validated against the spec's schemas) would prevent that.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
 ---
@@ -110,7 +113,7 @@ Phases are ordered by dependency. Each has an explicit "done when" so progress i
   - Treats a missing binary, a non-0/1 exit, empty output or invalid JSON as an analyzer error, which becomes a warning.
 - [x] Register `ruffAdapter` in the orchestrator's `analyzers` array.
 - [x] Document Ruff as a runtime dependency in the README.
-- [ ] CI step to install Ruff. This moves to Phase B, since it only matters once tests exercise the adapter.
+- [x] CI step to install Ruff (done in Phase B).
 
 **Done:** a `.py` file with an unused import and a hard-coded `eval` returns findings with `source: 'ruff'`, and a missing Ruff binary returns a warning instead of failing the request.
 
@@ -211,7 +214,7 @@ Still open in this area: more real-world samples, a larger model for Java, and s
 - [x] Readiness check that verifies the Ruff binary and Ollama reachability (`/health` stays cheap): done in Phase C as `GET /ready`.
 - [ ] Structured JSON logs and basic metrics (request count, analyzer duration, failure rate).
 - [ ] CI deploy or image-publish step.
-- [ ] OpenAPI spec for `POST /review` and a README with example requests.
+- [x] OpenAPI spec (`openapi.yaml`, OpenAPI 3.1) for `/review`, `/health` and `/ready`, plus `curl` examples in the README. Checked against the real service: every example in the spec validates against its schemas, and the responses and headers of the running service match.
 
 **Done when:** a fresh machine can run the service with one command, and the API is documented.
 
@@ -249,4 +252,4 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | C | Hardening | Mostly done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs; schema validation and `logError` wiring open) |
 | D | LLM analyzer (Ollama) | Done (opt-in; tuned on 4 sample files) |
 | E | Language and rule coverage | Not started |
-| F | Operations and docs | Not started |
+| F | Operations and docs | Started (readiness check and OpenAPI spec done) |
