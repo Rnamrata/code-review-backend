@@ -30,6 +30,10 @@ through Ollama; the service only translates their output into one `Finding` shap
 
 ## API
 
+The full contract, with every response, error, header and example, is in [`openapi.yaml`](openapi.yaml)
+(OpenAPI 3.1). Open it in the Swagger Editor or Redoc to browse it, or import it into Postman to get a
+ready-made request for each endpoint.
+
 ### `POST /review`
 
 ```json
@@ -64,6 +68,15 @@ Response (`200`):
 }
 ```
 
+Try it with `curl`:
+
+```bash
+curl -s -X POST http://localhost:4000/review \
+  -H 'Content-Type: application/json' \
+  -H 'X-Request-Id: my-first-review' \
+  -d '{"filename":"app.py","language":"python","code":"print(undefined_name)\n"}'
+```
+
 - `findings` is top-level and sorted by severity, then line. Each has `file`,
   `line`, `message`, `severity`, and optionally `category`, `source`, `suggestion`.
 - `warnings` lists non-fatal problems: an analyzer failed or timed out, or no
@@ -72,6 +85,9 @@ Response (`200`):
 - Errors return `400` (bad input), `413` (body too large), `429` (too many requests; the
   `Retry-After` header says when to try again) or `500`, with
   `{ success, error, message, timestamp }`.
+- The optional `X-Request-Id` request header ties a review to the service's log lines and is sent back in
+  the response (a UUID is generated when you leave it out). Reviews also carry `RateLimit` and
+  `RateLimit-Policy` headers, and a `429` carries `Retry-After`.
 
 ### `GET /health`
 
@@ -180,6 +196,7 @@ src/
     reviewSummary.service.ts
   utils/         logger, validator, response formatter
 planning-docs/   design notes for the models and dependencies
+openapi.yaml     the API contract (OpenAPI 3.1)
 roadmap.md       phases and current status
 ```
 
@@ -197,7 +214,7 @@ and test on Node 20 and 22, plus an informational `npm audit`.
 ## Status
 
 ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
-Rate limiting, CORS, graceful shutdown and a readiness check are in place. Docker is planned. See [roadmap.md](roadmap.md).
+Rate limiting, CORS, graceful shutdown and a readiness check are in place. The API contract is in [`openapi.yaml`](openapi.yaml). Docker is planned. See [roadmap.md](roadmap.md).
 
 ## License
 
