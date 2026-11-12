@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Finding } from '../models/finding';
 import { ReviewRequest } from '../models/review.model';
-import { createChildLogger, logPerformance, logger } from '../utils/logger.util';
+import { createChildLogger, logError, logPerformance, logger } from '../utils/logger.util';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
@@ -18,7 +18,8 @@ vi.mock('./adapters/ruff.adapter', () => ({
 vi.mock('../utils/logger.util', () => {
   const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
   // The child logger is the same object, so one set of assertions covers both.
-  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn() };
+  return { logger, createChildLogger: vi.fn(() => logger), logPerformance: vi.fn(), 
+    logError: vi.fn() };
 });
 vi.mock('./adapters/llm.adapter', () => ({
   llmAdapter: { name: 'llm', supports: vi.fn(), analyze: vi.fn() }
@@ -263,15 +264,40 @@ describe('when an analyzer fails', () => {
     expect(result.warnings).toEqual([{ source: 'ruff', message: 'plain string failure' }]);
   });
 
-  it('logs which analyzer failed', async () => {
-    ruff.analyze.mockRejectedValue(new Error('boom'));
+  it('logs which analyzer failed, with the error and the request id', async () => {
+    const error = new Error('boom');
+    ruff.analyze.mockRejectedValue(error);
+
+    await reviewCode(request({ requestId: 'req-9' }));
+
+    expect(logError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({ operation: 'analyzer', analyzer: 'ruff', requestId: 'req-9' })
+    );
+  });
+
+  it('logs a failure that is not an Error object too', async () => {
+    ruff.analyze.mockRejectedValue('plain string failure');
 
     await reviewCode(request());
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Analyzer failed',
-      expect.objectContaining({ analyzer: 'ruff' })
-    );
+    expect(logError).toHaveBeenCalledWith('plain string failure', expect.objectContaining({ analyzer: 'ruff' }));
+  });
+
+  it('logs nothing as an error when every analyzer worked', async () => {
+    await reviewCode(request());
+
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('logs each failed analyzer separately', async () => {
+    supports(eslint, 'python');
+    eslint.analyze.mockRejectedValue(new Error('eslint broke'));
+    ruff.analyze.mockRejectedValue(new Error('ruff broke'));
+
+    await reviewCode(request());
+
+    expect(logError).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the summary consistent when everything failed', async () => {

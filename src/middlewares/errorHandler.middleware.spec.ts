@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appConfig } from '../config/app.config';
-import { logger } from '../utils/logger.util';
+import { logError, logger } from '../utils/logger.util';
 import { errorHandler } from './errorHandler.middleware';
 
 // Keep test output clean and make sure nothing is written to log files.
 vi.mock('../utils/logger.util', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }
+logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+  logError: vi.fn()
 }));
 
 interface Captured {
@@ -159,18 +160,38 @@ describe('errorHandler', () => {
   });
 
   describe('logging', () => {
-    it('always logs the full error with its stack, even in production', () => {
+    it('logs a server error in full with logError, even in production', () => {
       appConfig.nodeEnv = 'production';
       const error = new Error('db password is hunter2');
 
       run(error);
 
-      expect(logger.error).toHaveBeenCalledTimes(1);
-      const [, details] = (logger.error as any).mock.calls[0];
-      expect(details.error).toBe('db password is hunter2');
-      expect(details.stack).toContain('hunter2');
-      expect(details.path).toBe('/review');
-      expect(details.method).toBe('POST');
+      expect(logError).toHaveBeenCalledTimes(1);
+      expect(logError).toHaveBeenCalledWith(error, { path: '/review', method: 'POST', status: 500 });
+    });
+
+    it('logs an error with a 5xx status of its own as a server error', () => {
+      const error = clientError(503, 'overloaded');
+
+      run(error);
+
+      expect(logError).toHaveBeenCalledWith(error, expect.objectContaining({ status: 503 }));
+    });
+
+    it('logs a client error as a short warning, without a stack', () => {
+      run(clientError(413, 'request entity too large'));
+
+      expect(logError).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      const [, details] = (logger.warn as any).mock.calls[0];
+      expect(details).toEqual({ error: 'request entity too large', path: '/review', method: 'POST', status: 413 });
+      expect(details.stack).toBeUndefined();
+    });
+
+    it('does not log a client error as an error', () => {
+      run(clientError(400, 'bad'));
+
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 });

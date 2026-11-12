@@ -1,54 +1,19 @@
 import { Request, Response } from 'express';
-import { appConfig } from '../config/app.config';
 import { HTTP_STATUS } from '../constants/httpStatus';
-import { randomUUID } from 'crypto';
 import { ReviewRequest } from '../models';
+import { ReviewBody } from '../schemas/review.schema';
 import { reviewCode } from '../services/reviewOrchestrator.service';
-import { errorResponse } from '../utils/responseFormatter.util';
 import { Validator } from '../utils/validator.util';
 import { createChildLogger } from '../utils/logger.util';
 import { normalizeLanguage } from '../constants/fileTypes';
 
-// A caller may send its own id to follow one review across services.
-// Only a short, plain value is accepted, so it is safe to log and echo back.
-const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
-
-const resolveRequestId = (req: Request): string => {
-    const incoming = req.get('X-Request-Id');
-    return incoming && REQUEST_ID_PATTERN.test(incoming) ? incoming : randomUUID();
-};
-
-const isNotEmptyString = (value: unknown): value is string =>
-    typeof value === 'string' && value.trim().length >0;
-
+// By the time a request gets here, attachRequestId has given it an id and validateReview has
+// checked the body, so both can be relied on.
 export const review = async (req: Request, res: Response): Promise<void> => {
-    const requestId = resolveRequestId(req);
-    res.setHeader('X-Request-Id', requestId);
+    const requestId: string = res.locals.requestId;
     const log = createChildLogger({ requestId });
-    
-    const { filename, language, code } = req.body ?? {};
 
-    if (!isNotEmptyString(filename) || !isNotEmptyString(language) || typeof code !== 'string') {
-        res.status(HTTP_STATUS.BAD_REQUEST).json(
-            errorResponse('Invalid request', 'Body must be JSON: { filename, language, code } (all strings)')
-        );
-        return;
-    }
-
-    if (!Validator.isValidFileExtension(filename)) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json(
-            errorResponse('Unsupported file type', `Allowed extensions: ${appConfig.allowedExtensions.join(', ')}`)
-        );
-        return;
-    }
-
-    if (!Validator.isValidFileSize(Buffer.byteLength(code, 'utf8'))) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json(
-            errorResponse('Invalid code size', 'Code must be non-empty and within the configured size limits')
-        );
-        return;
-    }
-
+    const { filename, language, code } = req.body as ReviewBody;
     const normalized = normalizeLanguage(language, filename);
 
     const request: ReviewRequest = {
@@ -59,8 +24,8 @@ export const review = async (req: Request, res: Response): Promise<void> => {
         requestId
     };
 
-    log.info('Review requested', {filename: request.filename, language: request.language});
+    log.info('Review requested', { filename: request.filename, language: request.language });
 
     const result = await reviewCode(request);
     res.status(HTTP_STATUS.OK).json(result);
-}
+};
