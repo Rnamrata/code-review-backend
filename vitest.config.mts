@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.spec.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     testTimeout: 15000,           // the first ESLint instance takes about a second
     env: {
       NODE_ENV: 'test',           // not 'development': no stack traces in responses
