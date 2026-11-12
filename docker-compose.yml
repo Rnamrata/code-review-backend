@@ -1,9 +1,12 @@
 # Runs the review service in a container.
 #
-#   docker compose up --build                 linters only (ESLint and Ruff)
-#   LLM_ENABLED=true docker compose up --build   also asks Ollama running on your machine
+#   docker compose up --build                            linters only (ESLint and Ruff)
+#   REVIEW_LLM_ENABLED=true docker compose up --build    also asks Ollama running on your machine
 #
-# Settings come from the environment (or a .env file next to this one); the defaults are below.
+# The settings below have their own REVIEW_ names on purpose. Docker Compose reads a .env file in
+# this folder for its ${...} values, and the service's own .env (used by `npm run dev`) has the
+# same names with other meanings: OLLAMA_BASE_URL=http://localhost:11434 would point the container
+# at itself. Set these in the shell, or in a .env file meant for compose.
 name: code-review-service
 
 services:
@@ -16,12 +19,12 @@ services:
       - "${REVIEW_PORT:-4000}:4000"
     environment:
       NODE_ENV: production
-      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LLM_ENABLED: ${REVIEW_LLM_ENABLED:-false}
       # Ollama on the host machine. On Linux, Ollama must listen on 0.0.0.0 for this to work.
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5-coder:7b}
-      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
-      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      OLLAMA_BASE_URL: ${REVIEW_OLLAMA_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${REVIEW_LLM_MODEL:-qwen2.5-coder:7b}
+      RATE_LIMIT_MAX_REQUESTS: ${REVIEW_RATE_LIMIT_MAX_REQUESTS:-100}
+      CORS_ORIGIN: ${REVIEW_CORS_ORIGIN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"   # makes the name work on Linux too
     read_only: true
