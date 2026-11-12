@@ -130,9 +130,7 @@ paths:
                       bySource: { ruff: 1 }
                       byCategory: { security: 1 }
         '400':
-          description: |
-            The request was not valid. `X-Request-Id` is present except when the body is not valid
-            JSON, which is rejected before the review starts.
+          description: The request was not valid, including a body that is not valid JSON.
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -166,6 +164,9 @@ paths:
           description: |
             The request body is larger than the body limit, which is twice `MAX_FILE_SIZE_MB`
             (at least 1 MB). Code over `MAX_FILE_SIZE_MB` but under the body limit gets a `400`.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -180,6 +181,8 @@ paths:
             (`RATE_LIMIT_MAX_REQUESTS` per `RATE_LIMIT_WINDOW_MINUTES`). Try again after the
             number of seconds in `Retry-After`.
           headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
             Retry-After:
               $ref: '#/components/headers/Retry-After'
             RateLimit:
@@ -199,6 +202,9 @@ paths:
           description: |
             An unexpected error. Outside development the `error` text is generic and no `stack`
             is returned; the details are only in the server log.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:

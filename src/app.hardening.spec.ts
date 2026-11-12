@@ -47,6 +47,25 @@ describe('rate limiting', () => {
     expect(statuses).toEqual([400, 400, 429]);
   });
 
+  it('sends a request id with a refused request', async () => {
+    const app = await loadApp({ RATE_LIMIT_MAX_REQUESTS: '1' });
+    await request(app).post('/review').send(validBody);
+
+    const res = await request(app).post('/review').send(validBody);
+
+    expect(res.status).toBe(429);
+    expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('keeps the id the caller sent on a refused request', async () => {
+    const app = await loadApp({ RATE_LIMIT_MAX_REQUESTS: '1' });
+    await request(app).post('/review').send(validBody);
+
+    const res = await request(app).post('/review').set('X-Request-Id', 'chatbot-3').send(validBody);
+
+    expect(res.headers['x-request-id']).toBe('chatbot-3');
+  });
+
   it('leaves /health alone once the limit is reached', async () => {
     const app = await loadApp({ RATE_LIMIT_MAX_REQUESTS: '1' });
     await request(app).post('/review').send(validBody);
