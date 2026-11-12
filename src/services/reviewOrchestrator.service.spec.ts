@@ -6,6 +6,7 @@ import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
 import { llmAdapter } from './adapters/llm.adapter';
+import { metrics, registry } from './metrics.service';
 
 // The real adapters run ESLint and Ruff. Replace them, so these tests are about
 // how the orchestrator treats analyzers, not about what the analyzers find.
@@ -569,5 +570,117 @@ describe('timeouts', () => {
     await reviewCode(request());
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('metrics', () => {
+  // The real metrics service is used, so these tests read what GET /metrics would show.
+  const count = async (name: string, labels: Record<string, string> = {}) => {
+    const all = (await registry.getMetricsAsJSON()) as { name: string; values: { metricName?: string; labels: Record<string, string>; value: number }[] }[];
+    return all
+      .flatMap((m) => m.values.map((v) => ({ ...v, metricName: v.metricName ?? m.name })))
+      .filter((v) => v.metricName === name && Object.entries(labels).every(([k, want]) => v.labels[k] === want))
+      .reduce((sum, v) => sum + v.value, 0);
+  };
+
+  beforeEach(() => {
+    metrics.reset();
+  });
+
+  it('counts a review where every analyzer answered as completed', async () => {
+    ruff.analyze.mockResolvedValue([finding({ line: 1 }), finding({ line: 9, severity: 'high' })]);
+
+    await reviewCode(request());
+
+    expect(await count('reviews_total', { outcome: 'completed' })).toBe(1);
+    expect(await count('reviews_total', { outcome: 'partial' })).toBe(0);
+    expect(await count('review_duration_seconds_count')).toBe(1);
+  });
+
+  it('counts the findings that are returned, by source and severity', async () => {
+    ruff.analyze.mockResolvedValue([finding({ line: 1, severity: 'low' }), finding({ line: 9, severity: 'high' })]);
+
+    await reviewCode(request());
+
+    expect(await count('findings_total', { source: 'ruff', severity: 'low' })).toBe(1);
+    expect(await count('findings_total', { source: 'ruff', severity: 'high' })).toBe(1);
+  });
+
+  it('counts a finding once when two analyzers reported the same problem', async () => {
+    supports(eslint, 'python');
+    ruff.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'ruff' })]);
+    eslint.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'eslint' })]);
+
+    await reviewCode(request());
+
+    expect(await count('findings_total')).toBe(1);
+  });
+
+  it('times every analyzer that ran', async () => {
+    supports(eslint, 'python');
+
+    await reviewCode(request());
+
+    expect(await count('analyzer_duration_seconds_count', { analyzer: 'ruff' })).toBe(1);
+    expect(await count('analyzer_duration_seconds_count', { analyzer: 'eslint' })).toBe(1);
+    expect(await count('analyzer_failures_total')).toBe(0);
+  });
+
+  it('counts a failed analyzer as an error, still times it, and calls the review partial', async () => {
+    ruff.analyze.mockRejectedValue(new Error('Ruff exploded'));
+
+    await reviewCode(request());
+
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff', reason: 'error' })).toBe(1);
+    expect(await count('analyzer_duration_seconds_count', { analyzer: 'ruff' })).toBe(1);
+    expect(await count('reviews_total', { outcome: 'partial' })).toBe(1);
+    expect(await count('reviews_total', { outcome: 'completed' })).toBe(0);
+  });
+
+  it('counts an analyzer that throws before returning a promise as a failure', async () => {
+    ruff.analyze.mockImplementation(() => {
+      throw new Error('threw synchronously');
+    });
+
+    await reviewCode(request());
+
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff', reason: 'error' })).toBe(1);
+  });
+
+  it('counts a failure that is not an Error object, even an empty one', async () => {
+    ruff.analyze.mockRejectedValue(undefined);
+
+    await reviewCode(request());
+
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff' })).toBe(1);
+  });
+
+  it('counts an analyzer that ran out of time as a timeout', async () => {
+    vi.useFakeTimers();
+    ruff.analyze.mockReturnValue(new Promise(() => undefined));
+
+    const pending = reviewCode(request());
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+    await pending;
+
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff', reason: 'timeout' })).toBe(1);
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff', reason: 'error' })).toBe(0);
+  });
+
+  it('counts a review nobody can do as unsupported_language, with no analyzer timings', async () => {
+    await reviewCode(request({ language: 'cobol' }));
+
+    expect(await count('reviews_total', { outcome: 'unsupported_language' })).toBe(1);
+    expect(await count('analyzer_duration_seconds_count')).toBe(0);
+  });
+
+  it('does not count a failure for an analyzer that succeeded next to one that failed', async () => {
+    supports(eslint, 'python');
+    eslint.analyze.mockRejectedValue(new Error('eslint broke'));
+
+    await reviewCode(request());
+
+    expect(await count('analyzer_failures_total', { analyzer: 'eslint' })).toBe(1);
+    expect(await count('analyzer_failures_total', { analyzer: 'ruff' })).toBe(0);
   });
 });

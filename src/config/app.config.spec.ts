@@ -65,3 +65,38 @@ describe('removed settings', () => {
     expect('host' in (await loadConfig())).toBe(false);
   });
 });
+
+describe('logging and metrics settings', () => {
+  const keys = ['LOG_FORMAT', 'METRICS_ENABLED', 'NODE_ENV'];
+  const load = async (env: Record<string, string> = {}) => {
+    vi.resetModules();
+    for (const key of keys) vi.stubEnv(key, '');
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+    return (await import('./app.config')).appConfig;
+  };
+
+  it('prints JSON logs in production and readable ones elsewhere', async () => {
+    expect((await load({ NODE_ENV: 'production' })).logFormat).toBe('json');
+    expect((await load({ NODE_ENV: 'development' })).logFormat).toBe('pretty');
+    expect((await load({ NODE_ENV: 'test' })).logFormat).toBe('pretty');
+  });
+
+  it('treats an unset NODE_ENV as production, like the rest of the service', async () => {
+    expect((await load()).logFormat).toBe('json');
+  });
+
+  it('reads LOG_FORMAT, ignoring case and spaces', async () => {
+    expect((await load({ NODE_ENV: 'development', LOG_FORMAT: 'JSON' })).logFormat).toBe('json');
+    expect((await load({ NODE_ENV: 'production', LOG_FORMAT: ' pretty ' })).logFormat).toBe('pretty');
+  });
+
+  it('falls back to the default for a value it does not know', async () => {
+    expect((await load({ NODE_ENV: 'development', LOG_FORMAT: 'yaml' })).logFormat).toBe('pretty');
+  });
+
+  it('serves metrics unless METRICS_ENABLED=false', async () => {
+    expect((await load()).metricsEnabled).toBe(true);
+    expect((await load({ METRICS_ENABLED: 'true' })).metricsEnabled).toBe(true);
+    expect((await load({ METRICS_ENABLED: 'false' })).metricsEnabled).toBe(false);
+  });
+});

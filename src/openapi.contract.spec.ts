@@ -75,10 +75,11 @@ describe('openapi.yaml: the document itself', () => {
   });
 
   it('describes the three routes', () => {
-    expect(Object.keys(spec.paths).sort()).toEqual(['/health', '/ready', '/review']);
+    expect(Object.keys(spec.paths).sort()).toEqual(['/health', '/metrics', '/ready', '/review']);
     expect(Object.keys(spec.paths['/review'])).toEqual(['post']);
     expect(Object.keys(spec.paths['/health'])).toEqual(['get']);
     expect(Object.keys(spec.paths['/ready'])).toEqual(['get']);
+    expect(Object.keys(spec.paths['/metrics'])).toEqual(['get']);
   });
 
   it('gives every operation a unique id', () => {
@@ -157,7 +158,8 @@ for (const [route, item] of Object.entries<any>(spec.paths)) {
     const medias: [string, any][] = [];
     if (op.requestBody) medias.push([`${method.toUpperCase()} ${route} request`, op.requestBody.content['application/json']]);
     for (const [status, response] of Object.entries<any>(op.responses)) {
-      if (response.content) medias.push([`${method.toUpperCase()} ${route} ${status}`, response.content['application/json']]);
+      // Only the JSON answers have a schema to check; /metrics answers plain text.
+      if (response.content?.['application/json']) medias.push([`${method.toUpperCase()} ${route} ${status}`, response.content['application/json']]);
     }
     for (const [label, media] of medias) {
       if (media.example !== undefined) examples.push([label, media.schema, media.example]);
@@ -246,6 +248,42 @@ describe('what the service answers matches the spec', () => {
 
   it('200: /health', async () => {
     expectToMatchSpec('/health', 'get', 200, await request(app).get('/health'));
+  });
+
+  it('200: /metrics is plain text in the Prometheus format', async () => {
+    const res = await request(app).get('/metrics');
+
+    expect(res.status).toBe(200);
+    expect(Object.keys(spec.paths['/metrics'].get.responses['200'].content)).toEqual(['text/plain']);
+    expect(res.headers['content-type']).toMatch(/^text\/plain/);
+    expect(res.text).toMatch(/^# HELP /m);
+  });
+
+  it('/metrics: every metric the spec lists is really there, and the labels it names are used', async () => {
+    await request(app).post('/review').send(js);
+    const text = (await request(app).get('/metrics')).text;
+    const description: string = spec.paths['/metrics'].get.description;
+    const rows = [...description.matchAll(/^\| `(\w+)` \| (\w+) \| (.*?) \|/gm)];
+
+    expect(rows.length).toBe(8);
+    for (const [, name, type, labels] of rows) {
+      expect(text, `${name} is in the spec but not in /metrics`).toContain(`# TYPE ${name} ${type}\n`);
+      for (const label of [...labels.matchAll(/`(\w+)`/g)].map((m) => m[1])) {
+        // Labels are only printed once there is a sample, so check the ones a review has produced.
+        if (['reviews_total', 'http_requests_total', 'analyzer_duration_seconds', 'findings_total'].includes(name)) {
+          expect(text, `${name} should carry the label ${label}`).toMatch(new RegExp(`^${name}\\w*\\{[^}]*\\b${label}="`, 'm'));
+        }
+      }
+    }
+  });
+
+  it('/metrics: nothing printed in the spec is missing from the list, and nothing extra is listed', async () => {
+    const text = (await request(app).get('/metrics')).text;
+    const description: string = spec.paths['/metrics'].get.description;
+    const listed = [...description.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]);
+    const printed = [...text.matchAll(/^# TYPE (\w+) /gm)].map((m) => m[1]).filter((name) => !/^(process|nodejs)_/.test(name));
+
+    expect(listed.sort()).toEqual(printed.sort());
   });
 
   it.runIf(ruffAvailable)('200: /ready when everything works', async () => {

@@ -1,12 +1,14 @@
 import express from 'express';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import dotenv from 'dotenv';
 
 import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler.middleware';
 import { createCors } from './middlewares/cors.middleware';
 import { attachRequestId } from './middlewares/requestId.middleware';
+import { recordMetrics } from './middlewares/metrics.middleware';
+import { accessLog } from './middlewares/accessLog.middleware';
+import { metrics } from './services/metrics.service';
 import { checkReadiness } from './services/readiness.service'
 import { appConfig } from './config/app.config';
 
@@ -19,9 +21,10 @@ const app = express();
 app.use(helmet());
 app.use(createCors(appConfig.corsOrigin, appConfig.nodeEnv));
 
-// Request logging is noise in test output
+// Metrics count every answer. The access log is noise in test output.
+app.use(recordMetrics);
 if (appConfig.nodeEnv !== 'test') {
-    app.use(morgan('dev'));
+    app.use(accessLog);
 }
 
 // Every answer from /review carries a request id, including one for a body that is not valid JSON
@@ -45,6 +48,15 @@ app.get('/ready', async (req, res) => {
     const readiness = await checkReadiness();
     res.status(readiness.ready ? 200 : 503).json(readiness);
 });
+
+// Metrics for a scraper such as Prometheus: request counts, review and analyzer timings, failures
+// and findings. Open to anyone who can reach the service, like /health, so keep the service
+// itself on an internal network. METRICS_ENABLED=false removes the route (it then answers 404).
+if (appConfig.metricsEnabled) {
+    app.get('/metrics', async (req, res) => {
+        res.set('Content-Type', metrics.contentType).send(await metrics.render());
+    });
+}
 
 // Routes
 app.use(routes);

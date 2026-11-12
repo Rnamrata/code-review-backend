@@ -15,9 +15,10 @@ interface Captured {
 }
 
 // Runs the handler with a fake request and response and returns what it sent.
-function run(error: any): Captured {
+function run(error: any, requestId?: string): Captured {
   const captured: Captured = { status: 0, body: undefined };
   const res: any = {
+    locals: requestId ? { requestId } : {},
     status(code: number) {
       captured.status = code;
       return res;
@@ -186,6 +187,28 @@ describe('errorHandler', () => {
       const [, details] = (logger.warn as any).mock.calls[0];
       expect(details).toEqual({ error: 'request entity too large', path: '/review', method: 'POST', status: 413 });
       expect(details.stack).toBeUndefined();
+    });
+
+    it('puts the request id on the log line of a server error', () => {
+      const error = new Error('boom');
+
+      run(error, 'req-42');
+
+      expect(logError).toHaveBeenCalledWith(error, { path: '/review', method: 'POST', status: 500, requestId: 'req-42' });
+    });
+
+    it('puts the request id on the warning for a client error', () => {
+      run(clientError(400, 'bad json'), 'req-43');
+
+      const [, details] = (logger.warn as any).mock.calls[0];
+      expect(details).toEqual({ error: 'bad json', path: '/review', method: 'POST', status: 400, requestId: 'req-43' });
+    });
+
+    it('logs without a request id when the route has none', () => {
+      run(clientError(404, 'nothing'));
+
+      const [, details] = (logger.warn as any).mock.calls[0];
+      expect(details.requestId).toBeUndefined();
     });
 
     it('does not log a client error as an error', () => {

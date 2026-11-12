@@ -16,10 +16,14 @@ export const errorHandler = (
   // A server error is logged in full, stack included, whatever the environment. A client
   // mistake (bad JSON, a body that is too large) is not a fault of the service, so it is
   // a short warning without a stack.
+  // The request id ties this line to the access-log line and the other lines of the same request.
+  // Only /review has one; on other routes the field is simply empty.
+  const requestId = res.locals?.requestId;
+
   if (isServerError) {
-    logError(err, { path: req.path, method: req.method, status: statusCode });
+    logError(err, { path: req.path, method: req.method, status: statusCode, requestId });
   } else {
-    logger.warn('Client error', { error: err.message, path: req.path, method: req.method, status: statusCode });
+    logger.warn('Client error', { error: err.message, path: req.path, method: req.method, status: statusCode, requestId });
   }
 
   // Client errors (400, 413, ...) describe the caller's own mistake, so their

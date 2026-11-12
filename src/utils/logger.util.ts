@@ -10,27 +10,41 @@ if (appConfig.logToFile && !fs.existsSync(logDirectory)) {
   fs.mkdirSync(logDirectory, { recursive: true });
 }
 
-const consoleFormat = winston.format.combine(
+// Every format uses the same timestamp: ISO 8601 in UTC, e.g. 2026-11-12T04:28:37.603Z.
+// The logger below collects the extra fields of a log call under `metadata`; this moves them back
+// to the top level, so a JSON line is flat: { timestamp, level, message, requestId, ... }.
+const flattenMetadata = winston.format((info) => {
+  const { metadata, ...rest } = info as winston.Logform.TransformableInfo & { metadata?: Record<string, unknown> };
+  return { ...rest, ...metadata } as winston.Logform.TransformableInfo;
+});
+
+const prettyFormat = winston.format.combine(
   winston.format.colorize(),
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.timestamp(),
+  flattenMetadata(),
   winston.format.printf(({ timestamp, level, message, ...metadata }) => {
     let msg = `${timestamp} [${level}]: ${message}`;
-    
+
     // Add metadata if present
     if (Object.keys(metadata).length > 0) {
       msg += ` ${JSON.stringify(metadata, null, 2)}`;
     }
-    
+
     return msg;
   })
 );
 
-
-const fileFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+const jsonFormat = winston.format.combine(
+  winston.format.timestamp(),
   winston.format.errors({ stack: true }),
+  flattenMetadata(),
   winston.format.json()
 );
+
+const consoleFormat = appConfig.logFormat === 'json' ? jsonFormat : prettyFormat;
+
+// The log files are always JSON, whatever the console prints.
+const fileFormat = jsonFormat;
 
 
 const transports: winston.transport[] = [];
@@ -84,7 +98,7 @@ const logger = winston.createLogger({
   level: appConfig.logLevel || 'info',
   levels: winston.config.npm.levels,
   format: winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.timestamp(),
     winston.format.errors({ stack: true }),
     winston.format.metadata()
   ),
@@ -160,6 +174,19 @@ export const createChildLogger = (
  * @param environment - Environment (development, production)
  */
 export const logStartup = (port: number | string, environment: string): void => {
+  // A log collector wants one line with fields; a person reading a terminal wants the banner.
+  if (appConfig.logFormat === 'json') {
+    logger.info('Application starting', {
+      environment,
+      port,
+      logLevel: appConfig.logLevel,
+      logDirectory: appConfig.logToFile ? logDirectory : null,
+      nodeVersion: process.version,
+      platform: process.platform
+    });
+    return;
+  }
+
   logger.info('='.repeat(50));
   logger.info('🚀 Application Starting');
   logger.info('='.repeat(50));
@@ -178,6 +205,11 @@ export const logStartup = (port: number | string, environment: string): void => 
  * @param reason - Reason for shutdown
  */
 export const logShutdown = (reason: string): void => {
+  if (appConfig.logFormat === 'json') {
+    logger.warn('Application shutting down', { reason });
+    return;
+  }
+
   logger.info('='.repeat(50));
   logger.warn('⚠️  Application Shutting Down');
   logger.info(`Reason: ${reason}`);
@@ -218,6 +250,7 @@ export const logPerformance = (
   logger.log(level, `⚡ Performance: ${operation}`, {
     operation,
     duration: `${duration}ms`,
+    durationMs: duration, // a number, for log tools that filter or chart on it
     ...metadata
   });
 };

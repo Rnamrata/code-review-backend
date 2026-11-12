@@ -18,6 +18,12 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
   return value.toLowerCase() === 'true';
 };
 
+// One of a fixed list of values; anything else falls back to the default.
+const getEnvChoice = <T extends string>(key: string, choices: readonly T[], defaultValue: T): T => {
+  const value = process.env[key]?.trim().toLowerCase();
+  return choices.find((choice) => choice === value) ?? defaultValue;
+};
+
 const getEnvFloat = (key: string, defaultValue: number): number => {
   const value = process.env[key];
   if (!value) return defaultValue;
@@ -35,6 +41,12 @@ export const appConfig = {
   logToConsole: getEnvBoolean('LOG_TO_CONSOLE', true),
   logToFile: getEnvBoolean('LOG_TO_FILE', true),
   logDirectory: getEnvString('LOG_DIRECTORY', './logs'),
+  // "json" prints one JSON object per line, for a log collector. "pretty" is for a person reading a
+  // terminal. Unset, it is json in production and pretty everywhere else.
+  logFormat: getEnvChoice('LOG_FORMAT', ['json', 'pretty'] as const, getEnvString('NODE_ENV', 'production') === 'production' ? 'json' : 'pretty'),
+
+  // Metrics: GET /metrics in the Prometheus text format
+  metricsEnabled: getEnvBoolean('METRICS_ENABLED', true),
 
   // File Configuration
   maxFileSizeMB: getEnvNumber('MAX_FILE_SIZE_MB', 1),

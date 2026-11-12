@@ -5,7 +5,8 @@
 #
 # It checks: the container becomes healthy, /health and /ready answer, a JavaScript review finds
 # an ESLint finding, a Python review finds a Ruff finding (so Ruff really is in the image), the
-# container does not run as root, and `docker stop` ends it with exit code 0.
+# container logs JSON lines (one object per line, with the request id), /metrics counts the two
+# reviews, the container does not run as root, and `docker stop` ends it with exit code 0.
 set -euo pipefail
 
 IMAGE="${1:-code-review-backend:local}"
@@ -47,6 +48,17 @@ py="$(curl -fsS -X POST "$BASE/review" -H 'Content-Type: application/json' \
   -d '{"filename":"app.py","language":"python","code":"import os\nos.system(cmd)\n"}')"
 echo "$py" | grep -q '"source":"ruff"' || fail "no Ruff finding for the Python sample (is Ruff in the image?): $py"
 echo "  Python review finds a Ruff finding"
+
+logs="$(docker logs "$NAME" 2>&1)"
+[ -z "$(echo "$logs" | grep -v '^{')" ] || fail "the container logged a line that is not JSON: $(echo "$logs" | grep -v '^{' | head -3)"
+echo "$logs" | grep -q '"message":"HTTP request".*"requestId":"smoke-1"\|"requestId":"smoke-1".*"message":"HTTP request"' || fail "no JSON access-log line with the request id smoke-1"
+echo "  logs are JSON, one object per line, and carry the request id"
+
+metrics="$(curl -fsS "$BASE/metrics")"
+echo "$metrics" | grep -q '^reviews_total{outcome="completed"} 2$' || fail "/metrics did not count the two reviews: $(echo "$metrics" | grep '^reviews_total')"
+echo "$metrics" | grep -q '^http_requests_total{method="POST",route="/review",status="200"} 2$' || fail "/metrics did not count the two /review answers"
+echo "$metrics" | grep -q '^analyzer_duration_seconds_count{analyzer="ruff"} 1$' || fail "/metrics did not time the Ruff run"
+echo "  /metrics counts the reviews"
 
 [ "$(docker exec "$NAME" id -u)" != "0" ] || fail "the container runs as root"
 echo "  runs as a normal user"
