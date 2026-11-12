@@ -57,7 +57,7 @@ POST /review  { filename, language, code }
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 728 tests in 25 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 744 tests in 26 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
@@ -72,6 +72,7 @@ POST /review  { filename, language, code }
 | OpenAPI 3.1 spec of the API (`/review`, `/health`, `/ready`, every error and header) with `curl` examples in the README | Done | `openapi.yaml`, `README.md` |
 | Request validation in a zod schema behind its own middleware (answers are unchanged: the old and the new build gave identical responses to 69 different requests), the request id in its own middleware so a rejected request still carries it, `logError` for server errors and failed analyzers, `logSecurity` for rejected requests | Done | `src/schemas/review.schema.ts`, `src/middlewares/`, `src/controllers/review.controller.ts` |
 | OpenAPI contract test: every example in `openapi.yaml` must fit its schema, the enums must match the code, and real responses and headers of the service must match the spec | Done | `src/openapi.contract.spec.ts` |
+| Clean-up: every answer from `/review` carries `X-Request-Id`, even for a body that is not valid JSON or too large (the request id is attached before the body parser); the three unused logger helpers are removed; the log folder is only created when log files are written, so the Docker image needs no workaround; test output has no dotenv banners, listener warnings or expected-error blocks | Done | `src/app.ts`, `src/utils/logger.util.ts`, `vitest.setup.ts` |
 | Docker image (Node 22, Ruff pinned, non-root, read-only filesystem, health check on `/ready`), `docker-compose.yml`, and a CI job that builds the image and smoke-tests it; a stop with a review running waits for it (60 s grace period) | Done | `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke-test.sh`, `.github/workflows/ci.yml` |
 | Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
@@ -92,16 +93,13 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - Test coverage is not measured.
 - `fileTypes.ts` lists Java, C++ and C#. Java is reviewed by the LLM only (when enabled); C++ and C# have no analyzer. The `.cpp`, `.c` and `.cs` extensions are also not in the allow-list.
 - Config keys with no consumer yet: the three complexity thresholds (planned for Phase E).
-- The logger helpers `logRequest`, `logAnalysis` and `logRag` are not used anywhere (the last two were written for a design that was dropped). Remove them or put them to use.
 - Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
 - `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
 - The Docker image is built and tested in CI but not published to a registry.
 - The Ruff version is pinned in two places, the `Dockerfile` and the CI workflow, and the two must be changed together.
-- The logger creates its log folder even with `LOG_TO_FILE=false`. The image works around it with `LOG_DIRECTORY=/tmp/logs`; a small code fix would create the folder only when file logging is on.
 - Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 60 s; with plain `docker run`, use `--stop-timeout 60` or `docker stop -t 60`.
 - The contract test (`src/openapi.contract.spec.ts`) does not check the `format` of values such as `date-time`, nor the exact wording of messages.
-- A `400` for a body that is not valid JSON has no `X-Request-Id` header, because the body parser rejects it before the request id is set. The spec says so; registering the request id ahead of the body parser would fix it.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
 ---
@@ -155,7 +153,7 @@ Not done in this phase: a coverage report, and a test for a hung Ruff process be
   - `logPerformance` around each analyzer and the whole review, with a per-call threshold (the default 1 s would warn on every LLM call).
   - `logError` in the error handler and for failed analyzers, so stack traces are logged consistently. Server errors (5xx) and failed analyzers use it; a client mistake such as bad JSON is a short warning without a stack.
   - `logSecurity` for rejected requests (`invalid_request`, with the reason and never the submitted code) and for rate-limit events.
-  - `logAnalysis` and `logRag` are not used (see Known gaps).
+  - `logRequest`, `logAnalysis` and `logRag` were never used and are removed.
 - [x] Default `NODE_ENV` to production-safe behaviour so stack traces never reach a client by accident.
 - [x] Graceful shutdown: on SIGINT or SIGTERM stop accepting connections, let running reviews finish (up to `SHUTDOWN_TIMEOUT_MS`), drop idle keep-alive connections, and stop at once on a second signal.
 - [x] Remove dead code: the old CORS settings and the unused `host` config key. The rate-limit values are now used; the complexity thresholds stay for Phase E. (The `enable*` analysis flags, the unused `ReviewResponse` import and the empty `sessions/` and `uploads/` directories are already removed.)
