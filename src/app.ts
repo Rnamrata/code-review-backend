@@ -6,11 +6,12 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler.middleware';
 import { createCors } from './middlewares/cors.middleware';
+import { attachRequestId } from './middlewares/requestId.middleware';
 import { checkReadiness } from './services/readiness.service'
 import { appConfig } from './config/app.config';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const app = express();
 
@@ -22,6 +23,10 @@ app.use(createCors(appConfig.corsOrigin, appConfig.nodeEnv));
 if (appConfig.nodeEnv !== 'test') {
     app.use(morgan('dev'));
 }
+
+// Every answer from /review carries a request id, including one for a body that is not valid JSON
+// or is too large, which the body parser rejects before any route runs.
+app.use('/review', attachRequestId);
 
 app.use(express.json({ limit: appConfig.jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: appConfig.jsonBodyLimit }));

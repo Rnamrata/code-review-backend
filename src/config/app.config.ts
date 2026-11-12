@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const getEnvString = (key: string, defaultValue: string): string => {
   return process.env[key] || defaultValue;

@@ -87,7 +87,8 @@ curl -s -X POST http://localhost:4000/review \
   `Retry-After` header says when to try again) or `500`, with
   `{ success, error, message, timestamp }`.
 - The optional `X-Request-Id` request header ties a review to the service's log lines and is sent back in
-  the response (a UUID is generated when you leave it out). Reviews also carry `RateLimit` and
+  the response (a UUID is generated when you leave it out). Every answer from `/review` carries it, errors
+  included. Reviews also carry `RateLimit` and
   `RateLimit-Policy` headers, and a `429` carries `Retry-After`.
 
 ### `GET /health`

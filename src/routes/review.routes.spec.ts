@@ -327,6 +327,45 @@ describe('request ids', () => {
     expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('sends one for a body that is not valid JSON', async () => {
+    const res = await request(app).post('/review').set('Content-Type', 'application/json').send('{bad json');
+
+    expect(res.status).toBe(400);
+    expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('keeps the id the caller sent when the body is not valid JSON', async () => {
+    const res = await request(app)
+      .post('/review')
+      .set('Content-Type', 'application/json')
+      .set('X-Request-Id', 'chatbot-9')
+      .send('{bad json');
+
+    expect(res.headers['x-request-id']).toBe('chatbot-9');
+  });
+
+  it('sends one for a body that is too large', async () => {
+    const res = await request(app).post('/review').send({ ...valid, code: 'x'.repeat(3 * ONE_MB) });
+
+    expect(res.status).toBe(413);
+    expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('sends one when the review itself fails', async () => {
+    reviewCodeMock.mockRejectedValue(new Error('boom'));
+
+    const res = await request(app).post('/review').set('X-Request-Id', 'chatbot-5').send(valid);
+
+    expect(res.status).toBe(500);
+    expect(res.headers['x-request-id']).toBe('chatbot-5');
+  });
+
+  it('does not add one to other routes', async () => {
+    const res = await request(app).get('/health');
+
+    expect(res.headers['x-request-id']).toBeUndefined();
+  });
+
   it('accepts an id of exactly 64 characters', async () => {
     const id = 'a'.repeat(64);
     const res = await request(app).post('/review').set('X-Request-Id', id).send(valid);

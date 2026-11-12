@@ -8,6 +8,13 @@ import { parse } from 'yaml';
 import app from './app';
 import { SEVERITY_ORDER } from './models/finding';
 
+// A failed analyzer is logged as an error, and two tests below fail one on purpose (an unreachable
+// model). This keeps those expected errors out of the test output; everything else is logged as usual.
+vi.mock('./utils/logger.util', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./utils/logger.util')>()),
+  logError: vi.fn()
+}));
+
 // openapi.yaml is written by hand. These tests keep it honest: every example in it must fit its
 // schema, and what the running service really answers must fit the schemas and headers it promises.
 // If the code changes and the spec is not updated (or the other way round), a test here fails.
@@ -91,6 +98,12 @@ describe('openapi.yaml: the document itself', () => {
 
   it('documents the statuses /review can answer with', () => {
     expect(Object.keys(spec.paths['/review'].post.responses).sort()).toEqual(['200', '400', '413', '429', '500']);
+  });
+
+  it('promises a request id on every answer /review can give', () => {
+    for (const status of Object.keys(spec.paths['/review'].post.responses)) {
+      expect(declaredHeaders('/review', 'post', Number(status)), `status ${status}`).toContain('x-request-id');
+    }
   });
 
   it('only refers to things that exist', () => {
@@ -208,13 +221,11 @@ describe('what the service answers matches the spec', () => {
     expectToMatchSpec('/review', 'post', 400, await request(app).post('/review').send({ ...js, code: '' }));
   });
 
-  it('400: the body is not valid JSON (fits the error schema, and has no request id, as documented)', async () => {
+  it('400: the body is not valid JSON, and it still carries a request id', async () => {
     const res = await request(app).post('/review').set('Content-Type', 'application/json').send('{bad json');
 
-    expect(res.status).toBe(400);
-    expect(problems(jsonSchemaOf('/review', 'post', 400), res.body)).toBeNull();
-    expect(res.headers['x-request-id']).toBeUndefined();
-    expect(spec.paths['/review'].post.responses['400'].description).toMatch(/not valid\s+JSON/);
+    expectToMatchSpec('/review', 'post', 400, res);
+    expect(res.headers['x-request-id']).toBeDefined();
   });
 
   it('413: the body is too large', async () => {
@@ -230,7 +241,7 @@ describe('what the service answers matches the spec', () => {
     const res = await request(limited).post('/review').send(js);
 
     expectToMatchSpec('/review', 'post', 429, res);
-    expect(declaredHeaders('/review', 'post', 429).sort()).toEqual(['ratelimit', 'ratelimit-policy', 'retry-after']);
+    expect(declaredHeaders('/review', 'post', 429).sort()).toEqual(['ratelimit', 'ratelimit-policy', 'retry-after', 'x-request-id']);
   });
 
   it('200: /health', async () => {
