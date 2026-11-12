@@ -2,6 +2,7 @@ import { Finding } from '../models/finding';
 import { Analyzer, ReviewRequest, ReviewResponse, ReviewWarning } from '../models/review.model';
 import { createChildLogger, logError, logPerformance } from '../utils/logger.util';
 import { mergeFindings } from './findingsMerger.service';
+import { metrics } from './metrics.service';
 import { buildSummary } from './reviewSummary.service';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
@@ -37,6 +38,8 @@ async function runAnalyzer(analyzer: Analyzer, request: ReviewRequest): Promise<
     const timeoutMs = analyzer.timeoutMs ?? DEFAULT_ANALYZER_TIMEOUT_MS;
     const started = Date.now();
 
+    let failure: unknown;
+
     try {
         return await withTimeout(
             analyzer.analyze(request, controller.signal),
@@ -44,13 +47,13 @@ async function runAnalyzer(analyzer: Analyzer, request: ReviewRequest): Promise<
             analyzer.name,
             () => controller.abort() // tell the analyzer to stop, not just stop waiting
         );
+    } catch (error) {
+        failure = error ?? new Error('unknown error'); // so a failure is never mistaken for a success
+        throw error;
     } finally {
-        logPerformance(
-            `analyzer ${analyzer.name}`,
-            Date.now() - started,
-            { requestId: request.requestId },
-            SLOW_ANALYZER_MS
-        );
+        const elapsed = Date.now() - started;
+        logPerformance(`analyzer ${analyzer.name}`, elapsed, { requestId: request.requestId }, SLOW_ANALYZER_MS);
+        metrics.recordAnalyzer(analyzer.name, elapsed / 1000, failure);
     }
 }
 
@@ -63,6 +66,7 @@ export async function reviewCode(request: ReviewRequest): Promise<ReviewResponse
     if (active.length === 0) {
         const message = `No analyzers support this language "${request.language}"`;
         log.warn(message, { filename: request.filename });
+        metrics.recordReview('unsupported_language', (Date.now() - reviewStarted) / 1000);
 
         return {
             findings: [],
@@ -89,6 +93,8 @@ export async function reviewCode(request: ReviewRequest): Promise<ReviewResponse
     });
 
     const findings = mergeFindings(lists);
+
+    metrics.recordReview(warnings.length > 0 ? 'partial' : 'completed', (Date.now() - reviewStarted) / 1000, findings);
 
     logPerformance(
         'review',

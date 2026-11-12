@@ -264,6 +264,44 @@ paths:
                   ruff: { ok: true, detail: 'ruff 0.17.0' }
                   ollama: { ok: false, detail: 'Ollama is unreachable' }
 
+  /metrics:
+    get:
+      tags: [Operations]
+      operationId: getMetrics
+      summary: Metrics
+      description: |
+        Counters and timings in the Prometheus text format, for a scraper such as Prometheus. Like
+        `/health` it needs no key, so keep the service on an internal network. With
+        `METRICS_ENABLED=false` the route does not exist and answers `404`. It is not counted
+        against the rate limit and carries no `X-Request-Id`.
+
+        | Metric | Type | Labels | Meaning |
+        | --- | --- | --- | --- |
+        | `http_requests_total` | counter | `method`, `route`, `status` | Answers sent. `route` is `/review`, `/health`, `/ready`, `/metrics` or `unmatched`. |
+        | `http_request_duration_seconds` | histogram | `method`, `route` | Time to answer. |
+        | `reviews_total` | counter | `outcome` | `completed`, `partial` (an analyzer failed or timed out) or `unsupported_language`. |
+        | `review_duration_seconds` | histogram | | Time for all analyzers of one review. |
+        | `analyzer_duration_seconds` | histogram | `analyzer` | Time one analyzer took. |
+        | `analyzer_failures_total` | counter | `analyzer`, `reason` | `reason` is `timeout` or `error`. |
+        | `findings_total` | counter | `source`, `severity` | Findings returned, after merging. |
+        | `rate_limited_total` | counter | | Reviews refused with `429`. |
+
+        Node's own numbers (`process_*`, `nodejs_*`) are included. Labels never hold a filename,
+        a request id or any text of the submitted code. The counters start again from zero when
+        the service restarts.
+      responses:
+        '200':
+          description: The metrics in the Prometheus text format.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP reviews_total Reviews run.
+                # TYPE reviews_total counter
+                reviews_total{outcome="completed"} 12
+                reviews_total{outcome="partial"} 1
+
 components:
   headers:
     X-Request-Id:
