@@ -1,0 +1,22 @@
+# Never copy secrets or local state into the image
+.env
+.env.*
+!.env.example
+node_modules
+dist
+logs
+*.log
+.git
+
+# Not needed to build or run the service
+.github
+**/*.spec.ts
+vitest.config.mts
+knowledge-base
+planning-docs
+roadmap.md
+README.md
+openapi.yaml
+Dockerfile
+docker-compose.yml
+.dockerignore
