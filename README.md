@@ -32,7 +32,8 @@ through Ollama; the service only translates their output into one `Finding` shap
 
 The full contract, with every response, error, header and example, is in [`openapi.yaml`](openapi.yaml)
 (OpenAPI 3.1). Open it in the Swagger Editor or Redoc to browse it, or import it into Postman to get a
-ready-made request for each endpoint.
+ready-made request for each endpoint. `src/openapi.contract.spec.ts` keeps the file honest: every example
+in it must fit its schemas, and what the service really answers must fit what the file promises.
 
 ### `POST /review`
 
@@ -220,8 +221,9 @@ src/
   config/        environment settings
   constants/     language and extension maps, HTTP status codes
   controllers/   request handling for /review
-  middlewares/   error handler, CORS, rate limiting
+  middlewares/   error handler, CORS, rate limiting, request id, request validation
   models/        Finding, ReviewRequest, ReviewResponse, Analyzer
+  schemas/       what a request to /review must look like (zod)
   routes/        route wiring
   services/
     adapters/    ESLint and Ruff adapters (one file per analyzer)
