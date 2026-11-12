@@ -45,7 +45,7 @@ POST /review  { filename, language, code }
 
 | Area | Status | Where |
 |---|---|---|
-| Express server, helmet, CORS, morgan, health check, 404 + error handler | Done | `src/server.ts`, `src/middlewares/` |
+| Express server, helmet, CORS, access log, health check, 404 + error handler | Done | `src/server.ts`, `src/middlewares/` |
 | `POST /review` with request validation (shape, extension, size) | Done | `src/controllers/review.controller.ts` |
 | Language normalization (aliases, extension fallback) | Done | `src/constants/fileTypes.ts` |
 | Models: `Finding`, `Severity`, `ReviewRequest`, `ReviewResponse`, `Analyzer` | Done | `src/models/` |
@@ -57,7 +57,7 @@ POST /review  { filename, language, code }
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 744 tests in 26 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 851 tests in 31 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
@@ -73,12 +73,13 @@ POST /review  { filename, language, code }
 | Request validation in a zod schema behind its own middleware (answers are unchanged: the old and the new build gave identical responses to 69 different requests), the request id in its own middleware so a rejected request still carries it, `logError` for server errors and failed analyzers, `logSecurity` for rejected requests | Done | `src/schemas/review.schema.ts`, `src/middlewares/`, `src/controllers/review.controller.ts` |
 | OpenAPI contract test: every example in `openapi.yaml` must fit its schema, the enums must match the code, and real responses and headers of the service must match the spec | Done | `src/openapi.contract.spec.ts` |
 | Clean-up: every answer from `/review` carries `X-Request-Id`, even for a body that is not valid JSON or too large (the request id is attached before the body parser); the three unused logger helpers are removed; the log folder is only created when log files are written, so the Docker image needs no workaround; test output has no dotenv banners, listener warnings or expected-error blocks | Done | `src/app.ts`, `src/utils/logger.util.ts`, `vitest.setup.ts` |
+| Structured logs and metrics: `LOG_FORMAT=json` prints one flat JSON object per line (ISO timestamps, `requestId` on every line of a review, a numeric `durationMs`), one access-log line per answer replaces morgan (probes at debug level, no query string, no body), the error handler logs the request id, and `GET /metrics` serves Prometheus metrics (`http_requests_total`, `reviews_total`, `review_duration_seconds`, `analyzer_duration_seconds`, `analyzer_failures_total` by `timeout`/`error`, `findings_total`, `rate_limited_total`, and Node's own numbers). The old and the new build gave identical answers to 15 different requests, and the Docker smoke test checks the JSON logs and the counters | Done | `src/utils/logger.util.ts`, `src/services/metrics.service.ts`, `src/middlewares/accessLog.middleware.ts`, `src/middlewares/metrics.middleware.ts` |
 | Docker image (Node 22, Ruff pinned, non-root, read-only filesystem, health check on `/ready`), `docker-compose.yml`, and a CI job that builds the image and smoke-tests it; a stop with a review running waits for it (60 s grace period) | Done | `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke-test.sh`, `.github/workflows/ci.yml` |
 | Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done. Next: publishing the image, then structured logs and metrics.
+Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done. Next: publishing the image.
 
 ### Known gaps
 
@@ -97,6 +98,9 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
 - `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
 - The Docker image is built and tested in CI but not published to a registry.
+- Metrics are kept in memory: they start from zero on a restart, and each instance counts on its own (a scraper adds them up). `GET /metrics` has no key, like `/health`, so the service must stay on an internal network. Nothing scrapes it yet, and there are no dashboards or alerts.
+- `prom-client` (15.1.3, the metrics library) is deprecated in favour of the Prometheus project's own `@prometheus-io/client`. That package needs Node 22 or newer, so it cannot be used while Node 20 is supported. Switching is one import line (all tests pass with it); do it when Node 20 is dropped.
+- The `route` label of the http metrics is one of `/review`, `/health`, `/ready`, `/metrics` or `unmatched`. A request for any other path is counted under `unmatched`, so a scanner cannot create thousands of time series; the price is that the path itself is not visible in the metrics (the access log has it).
 - The Ruff version is pinned in two places, the `Dockerfile` and the CI workflow, and the two must be changed together.
 - Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 60 s; with plain `docker run`, use `--stop-timeout 60` or `docker stop -t 60`.
 - The contract test (`src/openapi.contract.spec.ts`) does not check the `format` of values such as `date-time`, nor the exact wording of messages.
@@ -217,7 +221,7 @@ Still open in this area: more real-world samples, a larger model for Java, and s
 
 - [x] Dockerfile (Node 22, Ruff 0.17.0 pinned, non-root user, read-only filesystem, health check on `/ready`) and `docker-compose.yml` for a local run with Ollama on the host machine. CI builds the image and smoke-tests it (`scripts/docker-smoke-test.sh`). A compose-managed Ollama is not included: on macOS it would run on the CPU only.
 - [x] Readiness check that verifies the Ruff binary and Ollama reachability (`/health` stays cheap): done in Phase C as `GET /ready`.
-- [ ] Structured JSON logs and basic metrics (request count, analyzer duration, failure rate).
+- [x] Structured JSON logs and basic metrics (request count, analyzer duration, failure rate): `LOG_FORMAT=json`, an access log with the request id, and `GET /metrics` (Prometheus text format, `prom-client`). `openapi.yaml` lists every metric and a contract test keeps the list and the real output in step.
 - [ ] CI deploy or image-publish step (CI builds and smoke-tests the image; nothing publishes it yet).
 - [x] OpenAPI spec (`openapi.yaml`, OpenAPI 3.1) for `/review`, `/health` and `/ready`, plus `curl` examples in the README. Checked against the real service: every example in the spec validates against its schemas, and the responses and headers of the running service match.
 
@@ -257,4 +261,4 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | C | Hardening | Done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs, schema validation, error logging) |
 | D | LLM analyzer (Ollama) | Done (opt-in; tuned on 4 sample files) |
 | E | Language and rule coverage | Not started |
-| F | Operations and docs | Started (readiness check, OpenAPI spec and Docker done) |
+| F | Operations and docs | Started (readiness check, OpenAPI spec, Docker, structured logs and metrics done) |

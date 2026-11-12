@@ -136,10 +136,51 @@ npm run dev          # http://localhost:4000
 
 Other scripts: `npm run build`, `npm start` (runs `dist/`), `npm run watch`, `npm test`.
 
+### `GET /metrics`
+
+Counters and timings in the Prometheus text format: answers by route and status, review and
+analyzer durations, analyzer failures (split into `timeout` and `error`), findings by source and
+severity, and refused requests, plus Node's own numbers. Labels never hold a filename, a request id
+or any of the submitted code. The counters live in memory and start again from zero when the service
+restarts. There is no key, like `/health`, so keep the service on an internal network.
+`METRICS_ENABLED=false` removes the route. The full list is in [`openapi.yaml`](openapi.yaml).
+
+## Logs and metrics
+
+Logs go to the console, and to files when `LOG_TO_FILE=true`. With `LOG_FORMAT=json` (the default
+when `NODE_ENV=production`, so also in the Docker image) the console prints one JSON object per
+line, which a log collector can parse and filter:
+
+```json
+{"durationMs":113.29,"level":"info","message":"HTTP request","method":"POST","path":"/review","requestId":"demo-1","status":200,"timestamp":"2026-11-12T06:45:31.406Z"}
+```
+
+- Every line that belongs to a review carries the `requestId`, so one `grep` or filter follows a
+  review from the access line through the analyzer timings to any error. Send your own
+  `X-Request-Id` to find a review by the id your caller knows.
+- There is one access line per answer. `/health`, `/ready` and `/metrics` are logged at `debug`
+  level so probes do not drown out the reviews. Query strings and request bodies are never logged.
+- `LOG_FORMAT=pretty` (the default elsewhere) prints coloured lines for reading in a terminal. The
+  log files are always JSON.
+- Timestamps are ISO 8601 in UTC in both formats.
+
+Prometheus examples, for the metrics above:
+
+```
+# share of reviews where an analyzer failed, over 5 minutes
+sum(rate(reviews_total{outcome="partial"}[5m])) / sum(rate(reviews_total[5m]))
+
+# 95th percentile review time
+histogram_quantile(0.95, sum(rate(review_duration_seconds_bucket[5m])) by (le))
+
+# analyzers that time out
+sum(rate(analyzer_failures_total{reason="timeout"}[5m])) by (analyzer)
+```
+
 ## Docker
 
 The image bundles Node, the compiled service and Ruff (pinned to 0.17.0). It runs as a normal
-user, on a read-only filesystem, and logs to the console.
+user, on a read-only filesystem, and logs JSON lines to the console.
 
 ```bash
 docker build -t code-review-backend .
@@ -168,6 +209,8 @@ shows `healthy` once `GET /ready` passes: Ruff runs and, when the LLM is on, Oll
   names because Compose reads the `.env` in this folder, which is the one for `npm run dev`:
   it names Ollama as `localhost`, which inside a container is the container itself.
 - Your local `.env` is never copied into the image.
+- Logs and metrics: the container prints JSON lines (see [Logs and metrics](#logs-and-metrics)) and
+  serves `GET /metrics`.
 - To check an image: `bash scripts/docker-smoke-test.sh code-review-backend`
 
 ## Optional LLM analyzer
@@ -214,6 +257,8 @@ Set in `.env` (see `.env.example`):
 | `READINESS_TIMEOUT_MS` | `3000` | time limit for each check behind `GET /ready` |
 | `ALLOWED_EXTENSIONS` | `.py,.js,.java,.ts,.jsx,.tsx` | accepted file extensions |
 | `LOG_LEVEL`, `LOG_TO_CONSOLE`, `LOG_TO_FILE`, `LOG_DIRECTORY` | `info`, `true`, `true`, `./logs` | logging |
+| `LOG_FORMAT` | `json` in production, otherwise `pretty` | `json` prints one JSON object per line; `pretty` is for a terminal. Log files are always JSON |
+| `METRICS_ENABLED` | `true` | serve `GET /metrics`; `false` removes the route |
 
 ## Project layout
 
@@ -222,7 +267,7 @@ src/
   config/        environment settings
   constants/     language and extension maps, HTTP status codes
   controllers/   request handling for /review
-  middlewares/   error handler, CORS, rate limiting, request id, request validation
+  middlewares/   error handler, CORS, rate limiting, request id, request validation, access log, metrics
   models/        Finding, ReviewRequest, ReviewResponse, Analyzer
   schemas/       what a request to /review must look like (zod)
   routes/        route wiring
@@ -231,6 +276,7 @@ src/
     reviewOrchestrator.service.ts
     findingsMerger.service.ts
     reviewSummary.service.ts
+    metrics.service.ts   the counters and histograms behind GET /metrics
   utils/         logger, validator, response formatter
 planning-docs/   design notes for the models and dependencies
 scripts/         docker-smoke-test.sh, which checks a built image
@@ -254,7 +300,7 @@ image and smoke-tests it (`scripts/docker-smoke-test.sh`).
 ## Status
 
 ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
-Rate limiting, CORS, graceful shutdown and a readiness check are in place. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).
+Rate limiting, CORS, graceful shutdown and a readiness check are in place. Logs are JSON lines with a request id, and `GET /metrics` serves Prometheus metrics. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).
 
 ## License
 
