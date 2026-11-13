@@ -117,7 +117,7 @@ when something does not, so a container or load balancer can hold traffic back.
 |---|---|---|
 | JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process |
 | Python (`.py`) | Ruff | needs the `ruff` binary |
-| Java (`.java`) | LLM only | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
+| Java (`.java`) | LLM only, with rule cards | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
 | Python, JavaScript, TypeScript, Java | LLM (optional) | a second opinion next to the linters |
 
 `language` accepts aliases such as `js`, `ts`, `py`; if it is unknown the file
@@ -229,6 +229,19 @@ Anything the model returns that cannot be trusted (a line outside the file, an
 unknown severity, an empty message) is dropped. If Ollama is down, the model is
 missing, the file is too large for the context window or the call times out, the
 review still returns the linter findings plus a warning with the reason.
+
+**Java rule cards.** The model reviews Java without a linter, so it is given short reminders of the
+problems a small model tends to miss (SQL built from strings, hard-coded passwords, command
+injection, path traversal, unsafe deserialization, XML external entities, weak hashes, `==` on
+strings, unchecked null results, swallowed exceptions, unclosed resources, and a few more). A cheap
+pattern check on the submitted code picks the cards that apply, at most six, and only those go into
+the prompt; the code itself is never copied into it. The cards are in
+[`src/services/adapters/javaRules.ts`](src/services/adapters/javaRules.ts), and a debug log line
+lists the ones a review got. On 12 sample Java files they raised the known issues found from about 19
+to about 30 of 44, and a Java review takes about 13 s instead of 8 s. They help the model; they do
+not make it complete.
+
+**Why the 7B model.** `qwen2.5-coder:7b` is the default because it did best on Java among the three tried. `qwen2.5-coder:14b` found about the same issues but invented more and took over twice as long (10 GB of memory), and `llama3.2` was twice as fast but missed a third of the issues and added many false ones. Details are in [roadmap.md](roadmap.md).
 
 The first review after a pause can take 15 s or more while Ollama loads the model.
 `LLM_KEEP_ALIVE` keeps it loaded between reviews. Ollama normally serves one request
