@@ -346,7 +346,3 @@ image and smoke-tests it (`scripts/docker-smoke-test.sh`). A third job publishes
 
 ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
 Rate limiting, CORS, graceful shutdown and a readiness check are in place. Logs are JSON lines with a request id, and `GET /metrics` serves Prometheus metrics. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).
-
-## License
-
-MIT
