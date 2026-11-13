@@ -1,11 +1,17 @@
 Service dependency map
 ======================
-Status: matches the code on feature/ruff-adapter.
+Status: matches the code on master (updated for the LLM adapter, the Java rule
+cards, request validation, logging and metrics).
 Replaces the v1 map (sessions, parser, RAG communicator, report generator),
 which is still on branch archive/v1-node-primary.
 
 Request flow
 ------------
+Before a request reaches the controller (src/app.ts): helmet, CORS, metrics, access log,
+request id and the body parser. On /review it also passes the rate limiter
+(routes/index.ts) and request validation (middlewares/validateReview.middleware.ts,
+schemas/review.schema.ts). /health, /ready and /metrics are answered in app.ts.
+
 server.ts
   └── routes/index.ts
         └── routes/review.routes.ts            POST /review
@@ -17,7 +23,7 @@ server.ts
                     └── services/reviewOrchestrator.service.ts
                           ├── services/adapters/eslint.adapter.ts   (JS / TS)
                           ├── services/adapters/ruff.adapter.ts     (Python)
-                          ├── services/adapters/llm.adapter.ts      (planned)
+                          ├── services/adapters/llm.adapter.ts      (optional, Ollama)
                           ├── services/findingsMerger.service.ts
                           ├── services/reviewSummary.service.ts
                           └── utils/logger.util.ts
@@ -27,7 +33,8 @@ What each adapter depends on
 eslint.adapter   eslint, @eslint/js, typescript-eslint, eslint-plugin-security
                  (all in-process; nothing external to install)
 ruff.adapter     node child_process + the external "ruff" binary (RUFF_BIN)
-llm.adapter      (planned) HTTP call to the LLM / RAG service
+llm.adapter      HTTP call to Ollama (/api/chat), only when LLM_ENABLED=true
+                 javaRules.ts (its own helper) picks the Java reminders for the prompt
 
 Shared by everything
 --------------------
@@ -36,12 +43,15 @@ models/review.model.ts  ReviewRequest, ReviewResponse, ReviewWarning,
                         ReviewSummary, Analyzer
 config/app.config.ts    environment settings
 utils/logger.util.ts    winston logger
+services/metrics.service.ts  counters behind GET /metrics, recorded by the
+                        orchestrator and the middlewares
 
 Dependency rules
 ----------------
 - models import nothing from the rest of the project.
-- adapters import models, config, constants and utils only.
-  They never import the orchestrator, the merger or each other.
+- adapters import models, config, constants and utils (and their own helper
+  files, such as javaRules.ts). They never import the orchestrator, the merger
+  or each other.
 - the orchestrator is the only place that knows which adapters exist.
 - the merger and the summary builder are pure functions over Finding[].
   No I/O, no logging, so they are the easiest things to unit test.
@@ -63,7 +73,8 @@ External requirements
 - Node >= 20.19
 - ruff on PATH, or RUFF_BIN set (Python analysis is skipped with a warning
   if it is missing)
-- LLM / RAG service (planned, optional)
+- Ollama with a coding model such as qwen2.5-coder:7b (optional, LLM_ENABLED=true;
+  without it Java reviews return a warning and the other languages use their linter)
 
 Not part of this service any more
 ---------------------------------

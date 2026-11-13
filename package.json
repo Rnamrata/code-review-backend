@@ -1,7 +1,7 @@
 {
   "name": "code-review-backend",
   "version": "0.1.0",
-  "description": "Backend API for AI-powered code review system with static analysis and RAG integration",
+  "description": "Backend API for AI-powered code review system",
   "keywords": [
     "code-review",
     "static-analysis",
@@ -9,7 +9,6 @@
     "AI",
     "nodejs",
     "express",
-    "RAG",
     "code-quality"
   ],
   "homepage": "https://github.com/Rnamrata/code-review-backend#readme",

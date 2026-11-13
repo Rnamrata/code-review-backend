@@ -84,7 +84,7 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 ### Known gaps
 
 - The LLM finds only about half of the known issues, so it supplements the linters and cannot replace them. On 8 sample files (46 known issues) the linters and the LLM together report about 30; Java, which only the LLM reviews, reached about 8 of 16 with the old three-item checklist and about 10 with the rule cards (see the Java rule cards row in Done). Checked on sample files only, most of them written for this project; try more real code.
-- Results depend on the model more than on settings. Temperatures 0, 0.1 and 0.2 (three seeds each) and merging two runs gave no gain on average, and any prompt change reshuffles which issues a small model reports (the catch-line wording gained one Java finding and lost another). A larger coder model is the main lever left.
+- Results depend on the model more than on settings. Temperatures 0, 0.1 and 0.2 (three seeds each) and merging two runs gave no gain on average, and any prompt change reshuffles which issues a small model reports (the catch-line wording gained one Java finding and lost another). The two other models tried (`qwen2.5-coder:14b` and `llama3.2`) did not beat the 7B, so a bigger or smaller model is not an easy lever either (see Phase D).
 - The Java rule cards are pattern checks on the submitted code, so they only help where the code looks like what they expect (a query built on one line, a catch block on one line). A problem written in another shape gets no card. They remind the 7B model but do not make it find everything: on a file with a command built on one line and run on the next, the model reported the building line, and it ignored a SHA-1 card. They also make reviews slower (about 13 s per Java file instead of 8 s, never more than 20 s in the tests) because the model now reports more.
 - With no card matching, a correct Java file got no findings with the three general reminders but 12 false ones in four runs without any (measured on one file, so treat it as modest evidence). A file that is mostly fine but has a doubtful `hashCode` still gets comments from the model.
 - A short quote (such as `}`) cannot be matched to a line, so that finding keeps the model's own line number, which can be one off.
@@ -193,6 +193,7 @@ Adapter:
 - [x] Tune the merger on real output: merge across analyzers within one line when both categories are known and equal, pick the closest candidate, and keep a linter's severity over the model's.
 - [x] Make results repeatable: temperature 0 with a fixed seed.
 - [x] Java checklist in the prompt for Java requests only. On three Java samples (16 known issues) it found 8 instead of 5.
+- [x] Other models tried for Java on the same 12 files (four runs each, rule cards on). `qwen2.5-coder:14b`: known issues 31.2 against 30.2 of 44, but findings off the known lines 12.0 against 5.0, 31 s per review against 13 s (5 of 48 over the 40 s timeout) and 10 GB of memory on a 16 GB machine. `llama3.2` (3B, the model the chatbot uses): twice as fast (6.5 s) and light on memory, but only 20.2 of 44 and 19.2 findings off the known lines, because it repeats the hints back instead of judging the code. `qwen2.5-coder:7b` stays. Revisit only with more memory or a different model family.
 - [x] Java rule cards in place of the fixed checklist (`javaRules.ts`): a pattern check picks the cards that fit the file, at most 6, so the prompt stays short. Measured against the old checklist on 12 Java files, four runs each (temperature 0 plus three seeds at 0.1): known issues found 19.2 against 30.2 of 44, findings off the known lines 6.2 against 5.0, no timeouts. Four cards instead of six made no difference. Tuned on 3 files and then on 5 more, so a last set of 4 files written before the final run is the fair test: 3.5 against 7.0 of 12.
 - [x] Try other settings: temperatures 0.1 and 0.2 with three seeds each, and merging two runs. No gain on average (about 30 of 46 known issues across 8 files in every case), so the defaults stay at temperature 0 and seed 42. At temperature 0 the seed has no effect.
 
@@ -208,7 +209,7 @@ Adapter:
 
 On the shipped settings (temperature 0, seed 42), run through the real service: all four files gave identical results across two runs, all 7 findings that only the LLM reported were on the correct line, and the linters and the LLM together reported 17 of 25 known issues.
 
-Still open in this area: more real-world samples, a larger model for Java (the 14B experiment, measured the same way), and showing when the LLM agreed with a linter (see Known gaps).
+Still open in this area: more real-world samples (the Java files measured so far were written for this project), and showing when the LLM agreed with a linter (see Known gaps).
 
 ### Phase E - Broader language and rule coverage
 
@@ -261,6 +262,6 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | A | Ruff adapter | Done |
 | B | Tests and meaningful CI | Done |
 | C | Hardening | Done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs, schema validation, error logging) |
-| D | LLM analyzer (Ollama) | Done (opt-in; tuned on 4 sample files) |
+| D | LLM analyzer (Ollama) | Done (opt-in; Java rule cards, measured on 12 Java files) |
 | E | Language and rule coverage | Not started |
 | F | Operations and docs | Started (readiness check, OpenAPI spec, Docker, structured logs and metrics done) |

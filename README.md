@@ -241,6 +241,8 @@ lists the ones a review got. On 12 sample Java files they raised the known issue
 to about 30 of 44, and a Java review takes about 13 s instead of 8 s. They help the model; they do
 not make it complete.
 
+**Why the 7B model.** `qwen2.5-coder:7b` is the default because it did best on Java among the three tried. `qwen2.5-coder:14b` found about the same issues but invented more and took over twice as long (10 GB of memory), and `llama3.2` was twice as fast but missed a third of the issues and added many false ones. Details are in [roadmap.md](roadmap.md).
+
 The first review after a pause can take 15 s or more while Ollama loads the model.
 `LLM_KEEP_ALIVE` keeps it loaded between reviews. Ollama normally serves one request
 at a time, so a chat answer and a review share the queue.
