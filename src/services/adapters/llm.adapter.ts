@@ -3,6 +3,7 @@ import { SUPPORTED_LANGUAGES } from '../../constants/fileTypes';
 import { Finding, Severity, isSeverity } from '../../models/finding';
 import { Analyzer, ReviewRequest } from '../../models/review.model';
 import { createChildLogger } from '../../utils/logger.util';
+import { buildJavaHint, selectRules } from './javaRules';
 
 const LANGUAGES: ReadonlySet<string> = new Set([
     SUPPORTED_LANGUAGES.PYTHON,
@@ -33,19 +34,16 @@ Keep every message to one sentence. Add a short suggestion only when you know th
 For every finding, give its category and copy the exact text of the offending line, without its number, into the "snippet" field.
 If you find nothing wrong, return an empty findings list.`;
 
-// Problems a model tends to overlook unless it is told to look for them. Only the language
-// being reviewed gets its list, so the others are not nudged towards findings that do not apply.
-const LANGUAGE_HINTS: Record<string, string> = {
-    [SUPPORTED_LANGUAGES.JAVA]: [
-        'Also check for these common Java problems:',
-        '- strings compared with == or != instead of equals()',
-        '- a method that can return null whose result is used without a null check',
-        '- an exception that is swallowed (an empty catch block, or only printStackTrace) instead of handled or rethrown - report it on the line of the catch clause'
-    ].join('\n')
-};
+// Reminders of problems a model tends to overlook. Only the language being reviewed gets any, and
+// only the ones that can apply to this code, so the model is not nudged towards findings that
+// do not belong. Java's live in javaRules.ts.
+function selectHints(language: string, code: string): { text?: string; ids: string[] } {
+    if (language !== SUPPORTED_LANGUAGES.JAVA) return { ids: [] };
+    const selected = selectRules(code);
+    return { text: buildJavaHint(selected), ids: selected.map((card) => card.id) };
+}
 
-function buildSystemPrompt(language: string): string {
-    const hint = LANGUAGE_HINTS[language];
+function buildSystemPrompt(hint?: string): string {
     return hint ? `${SYSTEM_PROMPT}\n${hint}` : SYSTEM_PROMPT;
 }
 
@@ -155,7 +153,7 @@ function parseFindings(content: string, lines: string[], request: ReviewRequest)
     };
 }
 
-async function askOllama(request: ReviewRequest, lines: string[], signal?: AbortSignal): Promise<string> {
+async function askOllama(request: ReviewRequest, lines: string[], hint: string | undefined, signal?: AbortSignal): Promise<string> {
     let response: Response;
     try {
         response = await fetch(`${appConfig.ollamaBaseUrl}/api/chat`, {
@@ -174,7 +172,7 @@ async function askOllama(request: ReviewRequest, lines: string[], signal?: Abort
                     num_predict: MAX_REPLY_TOKENS
                 },
                 messages: [
-                    { role: 'system', content: buildSystemPrompt(request.language) },
+                    { role: 'system', content: buildSystemPrompt(hint) },
                     { role: 'user', content: buildPrompt(request.language, lines) }
                 ]
             })
@@ -230,11 +228,13 @@ export const llmAdapter: Analyzer = {
         }
 
         const lines = splitLines(request.code);
-        const content = await askOllama(request, lines, signal);
+        const hints = selectHints(request.language, request.code);
+        const content = await askOllama(request, lines, hints.text, signal);
         const { findings, dropped } = parseFindings(content, lines, request);
 
         createChildLogger({ requestId: request.requestId }).debug('LLM reply parsed', {
             model: appConfig.llmModel,
+            rules: hints.ids,
             kept: findings.length,
             dropped
         });
