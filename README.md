@@ -213,6 +213,36 @@ shows `healthy` once `GET /ready` passes: Ruff runs and, when the LLM is on, Oll
   serves `GET /metrics`.
 - To check an image: `bash scripts/docker-smoke-test.sh code-review-backend`
 
+### Published image
+
+Every push to `master` and every release publishes the image, for `linux/amd64` and `linux/arm64`
+(Apple Silicon and ARM servers run it natively), to the GitHub container registry:
+
+```bash
+docker run --rm -p 4000:4000 --stop-timeout 60 ghcr.io/rnamrata/code-review-backend:0.1.0
+```
+
+| Tag | Moves? | What it is |
+|---|---|---|
+| `0.1.0` | no | one release. Use this one in production |
+| `0.1` | yes | the newest `0.1.x` release |
+| `latest` | yes | the newest release |
+| `edge` | yes | the latest `master`, not a release |
+| `sha-abc1234` | no | one exact commit |
+
+The image is tested before and after it is published (CI smoke-tests the built image, then pulls
+the published one and tests that). Pass settings with `-e`, as in [Configuration](#configuration).
+To pin an image completely, use its digest: `ghcr.io/rnamrata/code-review-backend@sha256:...`.
+
+**Releasing.** Change `version` in `package.json` and in `openapi.yaml` (a test checks they match),
+merge, then tag the merge commit and push the tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+CI refuses a tag that does not match the version in `package.json`.
+
 ## Optional LLM analyzer
 
 The linters work on their own. To add a local model as a second opinion:
@@ -308,7 +338,9 @@ orchestrator. See `planning-docs/service-dependency-map.txt`.
 
 GitHub Actions runs on pull requests and on `master`: install, typecheck, build
 and test on Node 20 and 22, plus an informational `npm audit`. A second job builds the Docker
-image and smoke-tests it (`scripts/docker-smoke-test.sh`).
+image and smoke-tests it (`scripts/docker-smoke-test.sh`). A third job publishes the image to
+`ghcr.io` (see [Published image](#published-image)) after both have passed, only for pushes to
+`master` and for version tags, never for a pull request.
 
 ## Status
 
