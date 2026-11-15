@@ -8,10 +8,12 @@ on:
     tags: ['v*.*.*']          # a release: v0.2.0 publishes the image as 0.2.0, 0.2 and latest
   workflow_dispatch:
 
-# Cancel an older run of the same branch when a newer push arrives.
+# A newer push to a pull request cancels that pull request's older run. A run on master or on a
+# tag is never cancelled, so a publish always finishes: cancelling one half way would leave an
+# image or a release unpublished.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
