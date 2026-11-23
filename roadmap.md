@@ -50,21 +50,28 @@ POST /review  { filename, language, code }
 | Language normalization (aliases, extension fallback) | Done | `src/constants/fileTypes.ts` |
 | Models: `Finding`, `Severity`, `ReviewRequest`, `ReviewResponse`, `Analyzer` | Done | `src/models/` |
 | Orchestrator: parallel run, timeout, warnings, unsupported-language response | Done | `src/services/reviewOrchestrator.service.ts` |
-| Findings merger: cross-analyzer dedupe only (same line or one line apart, categories must fit), same-source findings kept, a linter's wording, line and severity win | Done | `src/services/findingsMerger.service.ts` |
+| Findings merger: across analyzers, a linter's wording, line and severity win. With the model on one side, the same line or one line apart, with fitting categories or the same topic ("except", "SQL", "timeout"…); two exact checks (linters, the secret scan) only on the same line and the same topic, so a secret is never folded into an XSS warning on the next line. Copies from one analyzer (same line and message) are dropped | Done | `src/services/findingsMerger.service.ts` |
 | Summary builder | Done | `src/services/reviewSummary.service.ts` |
 | ESLint adapter (JS/TS, with security plugin) | Done | `src/services/adapters/eslint.adapter.ts` |
 | Ruff adapter (Python; isolated config, `noqa` ignored, per-run timeout) | Done | `src/services/adapters/ruff.adapter.ts` |
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
 | GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 1,036 tests in 32 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 1,295 tests in 35 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
 | LLM analyzer via Ollama: opt-in (`LLM_ENABLED`), JSON-schema reply, untrusted items dropped, severity capped at `high`, size limit, warning instead of failure | Done | `src/services/adapters/llm.adapter.ts` |
 | LLM line accuracy and repeatability: the model quotes the offending line and the adapter locates it by that text; `category` required; temperature 0 with a fixed seed | Done | `src/services/adapters/llm.adapter.ts`, `src/config/app.config.ts` |
-| Java rule cards: 17 short reminders (SQL built from strings, hard-coded secrets, command injection, path traversal, unsafe deserialization, XXE, weak hashes, `java.util.Random` for tokens, switched-off TLS checks, secrets in logs, `==` on strings, unchecked null results, `Optional.get()`, swallowed exceptions, unclosed resources, `equals` without `hashCode`, shared static `SimpleDateFormat` and maps, `+=` on a String in a loop). A cheap pattern check on the submitted code picks the cards that apply (security first, at most 6) and only those go into the prompt; with no match the three general reminders are used. Checks only choose between fixed texts, so the code cannot add instructions. Other languages get none. On 12 Java files (44 known issues, four runs each) the known issues found rose from 19.2 to 30.2, and on the 4 files nobody had seen before the final run from 3.5 to 7.0 of 12; the average review took about 13 s instead of 8 s | Done | `src/services/adapters/javaRules.ts`, `src/services/adapters/llm.adapter.ts` |
-| ESLint on plain JavaScript: Node and browser globals (`globals` package), `require()` allowed in JS but still flagged in TypeScript, `detect-object-injection` rated `low`, identical repeated findings collapsed | Done | `src/services/adapters/eslint.adapter.ts` |
+| Java rule cards: 20 short reminders (SQL built from strings, command injection, path traversal, unsafe deserialization, XXE, weak hashes, `java.util.Random` for tokens, switched-off TLS checks, secrets in logs, `==` on strings, unchecked null results, `Optional.get()`, swallowed exceptions, unclosed resources, `equals` without `hashCode`, shared static `SimpleDateFormat` and maps, `+=` on a String in a loop; since Step 3 also a map lookup unboxed into an `int`, a value used before its null check and loops past the end, while hard-coded secrets moved to the secret scan). A cheap pattern check on the submitted code picks the cards that apply (security first, at most 6) and only those go into the prompt; with no match the three general reminders are used. Checks only choose between fixed texts, so the code cannot add instructions. Python and JavaScript/TypeScript have their own cards (see below). On 12 Java files (44 known issues, four runs each) the known issues found rose from 19.2 to 30.2, and on the 4 files nobody had seen before the final run from 3.5 to 7.0 of 12; the average review took about 13 s instead of 8 s | Done | `src/services/adapters/javaRules.ts`, `src/services/adapters/llm.adapter.ts` |
+| ESLint on plain JavaScript: Node and browser globals (`globals` package), `require()` allowed in JS but still flagged in TypeScript, identical repeated findings collapsed | Done | `src/services/adapters/eslint.adapter.ts` |
+| ESLint rules (Step 3): `eqeqeq` (allowing `== null`), HTML written from strings (`innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`) through the built-in `no-restricted-syntax`, and `security/detect-object-injection` turned off (it flagged ordinary array loops) | Done | `src/services/adapters/eslint.adapter.ts` |
+| Secret scan (Step 3): a supplementary analyzer (`secrets`) for keys in a provider's own format (Stripe, AWS, GitHub, Slack, Google, OpenAI/Anthropic, private keys, JSON Web Tokens, passwords in connection URLs) and names such as `DB_PASSWORD` set to a string. It skips placeholders, setting names, URLs, comments and documentation examples, never repeats the secret, and only runs next to another analyzer. On 2,000 library files it reported 24, all real-looking strings | Done | `src/services/adapters/secrets.adapter.ts` |
+| Rule cards for Python and JavaScript/TypeScript (Step 3): what the linters cannot see, mostly logic bugs (division by a length, ranges one past the end, unclosed files, ignored errors, unchecked responses, unawaited promises, `splice` in a loop, `sort()` in place). No general reminders for these two: with them, correct files got invented findings. Cards ignore comment lines | Done | `src/services/adapters/ruleCards.ts`, `pythonRules.ts`, `scriptRules.ts` |
+| `reliability` category (Step 3) for things that fail or leak at run time, with the categories explained in the prompt. The reply schema writes `snippet` straight after `line`: a `"` copied from the code into the last field used to end the reply after one finding | Done | `src/services/adapters/llm.adapter.ts` |
+| Measured after Step 3 on three sample files with 40 planted problems (Python, TypeScript, Java), the same in two runs: 30 found (18 before), and three correct files got no more findings than before (0, 3 and 0) | Done | — |
+| AI timeouts explained (Step 3): the chatbot's Ask Lens loads the same model with a 16,384-token context; reviews used 8,192, so Ollama reloaded the model and the review ran past its 40 s limit with no AI findings, which looked like the model giving different answers. `LLM_NUM_CTX` is now 16384, `LLM_TIMEOUT_MS` 90000 (a warm Java review took up to 50 s on an M4 laptop) and `SHUTDOWN_TIMEOUT_MS` 100000; the chatbot waits 120 s | Done | `src/config/app.config.ts` |
+| "Why" cards (Step 5): 40 short cards, each with why the problem matters, how to fix it (worded for the file's language) and its source with a link (OWASP cheat sheets, PEP 8 and the Python docs, MDN, the Google JavaScript Style Guide, the TypeScript handbook, Oracle's Java docs), in our own words. Linter and secret-scan findings get the card for their rule; AI findings get one only when the topic of their message clearly fits. Every finding with a card carries it as `why` | Done | `src/services/why/` |
 | Dependencies: unused `axios` removed and `npm audit fix` applied; production audit is 10 moderate, no critical or high | Done | `package.json` |
 | End-to-end check with the real chatbot: upload, chat about a finding in a real session, Ollama down and review service down all verified | Done | `llm-chatbot` |
 | Chatbot opening message built in code from the findings (exact counts, the review service's warnings shown, never called "clean" when a check did not run); 51 chatbot tests | Done | `llm-chatbot` repo: `src/modules/review_summary.py` |
@@ -80,14 +87,17 @@ POST /review  { filename, language, code }
 
 ### In progress
 
-Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, and the LLM analyzer is built and tuned (Phase D). Phase C hardening is done. Next: the coverage report.
+Nothing active. Phases A to D and F are done, and Phase E has started (the secret scan, rule cards for every language, the "why" cards). Next: the coverage report, and a Java linter (PMD or SpotBugs) for what the model keeps missing in Java.
 
 ### Known gaps
 
-- The LLM finds only about half of the known issues, so it supplements the linters and cannot replace them. On 8 sample files (46 known issues) the linters and the LLM together report about 30; Java, which only the LLM reviews, reached about 8 of 16 with the old three-item checklist and about 10 with the rule cards (see the Java rule cards row in Done). Checked on sample files only, most of them written for this project; try more real code.
+- The LLM finds only part of the known issues, so it supplements the linters and cannot replace them. On three sample files with 40 planted problems, the linters, the secret scan and the model found 30 after Step 3 (18 before); Java, which only the LLM reviews, found 7 of 11. It still misses unclosed connections, `equals` without `hashCode`, `sort()` in place and state cleared before an async call finishes, and put the Java use-before-null-check on a nearby line. Checked on sample files only, most of them written for this project; try more real code.
 - Results depend on the model more than on settings. Temperatures 0, 0.1 and 0.2 (three seeds each) and merging two runs gave no gain on average, and any prompt change reshuffles which issues a small model reports (the catch-line wording gained one Java finding and lost another). The two other models tried (`qwen2.5-coder:14b` and `llama3.2`) did not beat the 7B, so a bigger or smaller model is not an easy lever either (see Phase D).
 - The Java rule cards are pattern checks on the submitted code, so they only help where the code looks like what they expect (a query built on one line, a catch block on one line). A problem written in another shape gets no card. They remind the 7B model but do not make it find everything: on a file with a command built on one line and run on the next, the model reported the building line, and it ignored a SHA-1 card. They also make reviews slower (about 13 s per Java file instead of 8 s, never more than 20 s in the tests) because the model now reports more.
-- With no card matching, a correct Java file got no findings with the three general reminders but 12 false ones in four runs without any (measured on one file, so treat it as modest evidence). A file that is mostly fine but has a doubtful `hashCode` still gets comments from the model.
+- With no card matching, a correct Java file got no findings with the three general reminders but 12 false ones in four runs without any (measured on one file, so treat it as modest evidence). For Python and TypeScript it was the other way round: general reminders made a correct file get up to 11 invented findings, so those two get none. A file that is mostly fine but has a doubtful `hashCode` still gets comments from the model.
+- The model is sensitive to small prompt changes: a different set of cards, an extra instruction line or a schema change each flipped Java between one finding and six. Measure on the sample files after any prompt change.
+- "Why" cards for AI findings are matched by the words of the message, so an unusual wording gets no card (by design: no card rather than a wrong one). The card links were all checked to open; the advice is a summary, so the linked page is the authority.
+- The secret scan cannot tell a real key from an example that looks real (OAuth tokens in documentation, `password='password1'` in a docstring); about one file in a hundred of library code gets such a finding.
 - A short quote (such as `}`) cannot be matched to a line, so that finding keeps the model's own line number, which can be one off.
 - A merged finding shows only the linter's source, so a reader cannot tell the LLM agreed. An optional field (for example `alsoFoundBy`) would show it.
 - 10 moderate audit findings remain, all one `minimatch` advisory reached through ESLint. npm's only fix is downgrading ESLint 10 to 9, so it is left alone; the code path is not reachable because the adapter lints a virtual file name, never a caller-supplied glob.
@@ -104,7 +114,7 @@ Nothing active. Phases A and B are complete, the pre-LLM hardening is merged, an
 - `prom-client` (15.1.3, the metrics library) is deprecated in favour of the Prometheus project's own `@prometheus-io/client`. That package needs Node 22 or newer, so it cannot be used while Node 20 is supported. Switching is one import line (all tests pass with it); do it when Node 20 is dropped.
 - The `route` label of the http metrics is one of `/review`, `/health`, `/ready`, `/metrics` or `unmatched`. A request for any other path is counted under `unmatched`, so a scanner cannot create thousands of time series; the price is that the path itself is not visible in the metrics (the access log has it).
 - The Ruff version is pinned in two places, the `Dockerfile` and the CI workflow, and the two must be changed together.
-- Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 60 s; with plain `docker run`, use `--stop-timeout 60` or `docker stop -t 60`.
+- Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 110 s; with plain `docker run`, use `--stop-timeout 110` or `docker stop -t 110`.
 - The contract test (`src/openapi.contract.spec.ts`) does not check the `format` of values such as `date-time`, nor the exact wording of messages.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
 
@@ -190,7 +200,7 @@ Adapter:
   - Tag results `source: 'llm'`; keep `suggestion` populated where available.
   - Refuse files over `LLM_MAX_CODE_CHARS` with a warning, so the context window never truncates them silently.
 - [x] Register it; make it optional via `LLM_ENABLED` (off by default) so linters still work if Ollama is down.
-- [x] Use a shorter timeout than the shared 45 s (40 s, `LLM_TIMEOUT_MS`) so the chatbot's 60 s limit holds.
+- [x] Use a timeout of its own (`LLM_TIMEOUT_MS`): first 40 s under the chatbot's 60 s; since Step 3, 90 s under the chatbot's 120 s, with the same context size as the chatbot so the model is never reloaded between them.
 - [x] Tune the merger on real output: merge across analyzers within one line when both categories are known and equal, pick the closest candidate, and keep a linter's severity over the model's.
 - [x] Make results repeatable: temperature 0 with a fixed seed.
 - [x] Java checklist in the prompt for Java requests only. On three Java samples (16 known issues) it found 8 instead of 5.
@@ -216,7 +226,9 @@ Still open in this area: more real-world samples (the Java files measured so far
 
 - [ ] Decide per language (Java now has the LLM only; C/C++, C# have nothing): add an adapter (for example Checkstyle/PMD, cppcheck) or remove it from `fileTypes.ts` and the extension allow-list so the config matches reality.
 - [ ] Add complexity findings (ESLint `complexity`, Ruff `C901`) with configurable thresholds.
-- [ ] Add CWE / OWASP tags to security findings (optional `Finding.references` field).
+- [x] Secret scan for every reviewed language (Step 3).
+- [x] Rule cards for Python and JavaScript/TypeScript, and logic-bug cards for Java (Step 3).
+- [x] "Why" cards with a reason, a fix and a source link on each finding (`Finding.why`, Step 5), in place of the planned `Finding.references`.
 - [ ] Make rule sets configurable per request or by env, not only compiled in.
 
 **Done when:** every extension the API accepts has at least one analyzer behind it.
@@ -264,5 +276,5 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | B | Tests and meaningful CI | Done |
 | C | Hardening | Done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs, schema validation, error logging) |
 | D | LLM analyzer (Ollama) | Done (opt-in; Java rule cards, measured on 12 Java files) |
-| E | Language and rule coverage | Not started |
+| E | Language and rule coverage | Started (secret scan, rule cards for every language, "why" cards; Java linter and complexity still to do) |
 | F | Operations and docs | Done (readiness check, OpenAPI spec, Docker, structured logs and metrics, image publishing) |
