@@ -18,6 +18,7 @@ POST /review  { filename, language, code }
       |             (own timeout each; a failure becomes a warning)
       |-- ESLint adapter   JavaScript / TypeScript
       |-- Ruff adapter     Python
+      |-- secret scan      keys, tokens and passwords in the code (next to the others)
       |-- LLM adapter      optional, via Ollama (off by default)
       |
   merger          de-duplicate across analyzers, sort by severity
@@ -115,10 +116,17 @@ when something does not, so a container or load balancer can hold traffic back.
 
 | Language | Analyzer | Notes |
 |---|---|---|
-| JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process |
+| JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process; also `eqeqeq` and HTML written from strings (`innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`) |
 | Python (`.py`) | Ruff | needs the `ruff` binary |
 | Java (`.java`) | LLM only, with rule cards | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
-| Python, JavaScript, TypeScript, Java | LLM (optional) | a second opinion next to the linters |
+| Python, JavaScript, TypeScript, Java | LLM (optional), with rule cards | a second opinion next to the linters |
+| Python, JavaScript, TypeScript, Java | secret scan | runs next to another analyzer, never alone |
+
+**Secret scan.** Finds keys in a provider's own format (Stripe, AWS, GitHub, Slack, Google, OpenAI and
+Anthropic keys, private keys, JSON Web Tokens, passwords in connection URLs) and names such as
+`DB_PASSWORD` or `apiKey` set to a string. It skips placeholders, names of settings, URLs, comments
+and documentation examples, and a finding never repeats the secret. On 2,000 files of Python
+libraries it reported 24, all strings that look like real secrets (mostly example tokens in docs).
 
 `language` accepts aliases such as `js`, `ts`, `py`; if it is unknown the file
 extension is used.
@@ -260,22 +268,39 @@ unknown severity, an empty message) is dropped. If Ollama is down, the model is
 missing, the file is too large for the context window or the call times out, the
 review still returns the linter findings plus a warning with the reason.
 
-**Java rule cards.** The model reviews Java without a linter, so it is given short reminders of the
-problems a small model tends to miss (SQL built from strings, hard-coded passwords, command
-injection, path traversal, unsafe deserialization, XML external entities, weak hashes, `==` on
-strings, unchecked null results, swallowed exceptions, unclosed resources, and a few more). A cheap
-pattern check on the submitted code picks the cards that apply, at most six, and only those go into
-the prompt; the code itself is never copied into it. The cards are in
-[`src/services/adapters/javaRules.ts`](src/services/adapters/javaRules.ts), and a debug log line
-lists the ones a review got. On 12 sample Java files they raised the known issues found from about 19
-to about 30 of 44, and a Java review takes about 13 s instead of 8 s. They help the model; they do
-not make it complete.
+**Rule cards.** The model is given short reminders of the problems a small model tends to miss. A
+cheap pattern check on the submitted code picks the cards that apply, at most six, and only those go
+into the prompt; the code itself is never copied into it. A debug log line lists the cards a review got.
+
+- Java ([`javaRules.ts`](src/services/adapters/javaRules.ts)): SQL built from strings, command
+  injection, path traversal, unsafe deserialization, XML external entities, weak hashes, insecure
+  random tokens, a map lookup unboxed into an `int`, a value used before its null check, swallowed
+  exceptions, loops past the end, `==` on strings, unclosed resources and a few more. With no match
+  it gets three general reminders, which stopped the model inventing findings on correct files.
+- Python ([`pythonRules.ts`](src/services/adapters/pythonRules.ts)) and JavaScript/TypeScript
+  ([`scriptRules.ts`](src/services/adapters/scriptRules.ts)): what the linters cannot see, mostly
+  logic bugs: division by a length that can be zero, ranges one past the end, files and connections
+  never closed, ignored errors, unawaited promises, unchecked responses, `splice` in a loop, `sort()`
+  changing an array in place. They get no general reminders: with them, correct files got invented findings.
+
+On three sample files with 40 planted problems, the linters, the secret scan and the model with these
+cards found 30 (18 before), and three correct files got no more findings than before. They help the
+model; they do not make it complete.
+
+**Categories.** The model files each finding as `security`, `bug`, `reliability` (fails or leaks at
+run time: an unclosed file or connection, a swallowed exception, a missing timeout), `maintainability`
+or `performance`.
 
 **Why the 7B model.** `qwen2.5-coder:7b` is the default because it did best on Java among the three tried. `qwen2.5-coder:14b` found about the same issues but invented more and took over twice as long (10 GB of memory), and `llama3.2` was twice as fast but missed a third of the issues and added many false ones. Details are in [roadmap.md](roadmap.md).
 
 The first review after a pause can take 15 s or more while Ollama loads the model.
 `LLM_KEEP_ALIVE` keeps it loaded between reviews. Ollama normally serves one request
 at a time, so a chat answer and a review share the queue.
+
+Keep `LLM_NUM_CTX` equal to the chatbot's `REVIEW_NUM_CTX` (both 16384): Ask Lens uses the same
+model, and Ollama reloads a model to change its context size. A review that had to wait for that
+reload ran past its time limit and came back with no AI findings, which looked like the model
+giving different answers to the same file.
 
 ## Configuration
 
@@ -291,12 +316,12 @@ Set in `.env` (see `.env.example`):
 | `LLM_ENABLED` | `false` | turn the LLM analyzer on |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | where Ollama is running |
 | `LLM_MODEL` | `qwen2.5-coder:7b` | model used for reviews |
-| `LLM_TIMEOUT_MS` | `40000` | LLM run limit (keep it under the chatbot's 60 s) |
-| `LLM_NUM_CTX`, `LLM_KEEP_ALIVE` | `8192`, `30m` | context window sent with each request; how long Ollama keeps the model loaded |
+| `LLM_TIMEOUT_MS` | `90000` | LLM run limit (keep it under the chatbot's `REVIEW_TIMEOUT_SECONDS`, 120 s) |
+| `LLM_NUM_CTX`, `LLM_KEEP_ALIVE` | `16384`, `30m` | context window sent with each request (keep it equal to the chatbot's `REVIEW_NUM_CTX`); how long Ollama keeps the model loaded |
 | `LLM_MAX_CODE_CHARS`, `LLM_MAX_FINDINGS` | `12000`, `20` | larger files skip the LLM with a warning; most findings kept per review |
 | `MAX_FILE_SIZE_MB` | `1` | largest accepted code size; the request body may be twice as large (JSON escaping), at least 1 MB |
 | `RATE_LIMIT_WINDOW_MINUTES`, `RATE_LIMIT_MAX_REQUESTS` | `15`, `100` | each client address may start this many reviews per window; more get `429` |
-| `SHUTDOWN_TIMEOUT_MS` | `50000` | how long running reviews may finish after SIGTERM or SIGINT (keep it above `LLM_TIMEOUT_MS`) |
+| `SHUTDOWN_TIMEOUT_MS` | `100000` | how long running reviews may finish after SIGTERM or SIGINT (keep it above `LLM_TIMEOUT_MS`) |
 | `READINESS_TIMEOUT_MS` | `3000` | time limit for each check behind `GET /ready` |
 | `ALLOWED_EXTENSIONS` | `.py,.js,.java,.ts,.jsx,.tsx` | accepted file extensions |
 | `LOG_LEVEL`, `LOG_TO_CONSOLE`, `LOG_TO_FILE`, `LOG_DIRECTORY` | `info`, `true`, `true`, `./logs` | logging |
@@ -315,7 +340,7 @@ src/
   schemas/       what a request to /review must look like (zod)
   routes/        route wiring
   services/
-    adapters/    ESLint and Ruff adapters (one file per analyzer)
+    adapters/    one file per analyzer (ESLint, Ruff, secrets, LLM) and the LLM's rule cards
     reviewOrchestrator.service.ts
     findingsMerger.service.ts
     reviewSummary.service.ts
@@ -344,5 +369,5 @@ image and smoke-tests it (`scripts/docker-smoke-test.sh`). A third job publishes
 
 ## Status
 
-ESLint, Ruff and the optional LLM analyzer are working, with a test suite and CI.
+ESLint, Ruff, the secret scan and the optional LLM analyzer are working, with a test suite and CI.
 Rate limiting, CORS, graceful shutdown and a readiness check are in place. Logs are JSON lines with a request id, and `GET /metrics` serves Prometheus metrics. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).

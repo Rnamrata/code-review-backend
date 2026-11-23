@@ -32,6 +32,9 @@ export interface ReviewResponse {
 export interface Analyzer {
     name: FindingSource;
     timeoutMs?: number;
+    // Only runs next to another analyzer. On its own (the secret scan for a language whose
+    // linter or AI reviewer is off) a clean result would read as "no issues found".
+    supplementary?: boolean;
     supports(language: string): boolean;
     analyze(request: ReviewRequest, signal?: AbortSignal): Promise<Finding[]>;
 }

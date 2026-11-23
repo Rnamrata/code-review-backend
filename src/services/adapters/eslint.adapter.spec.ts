@@ -150,13 +150,37 @@ describe('eslintAdapter', () => {
     });
   });
 
-  describe('noisy security rules', () => {
-    it('rates object injection as low, not high', async () => {
+  describe('rule choices', () => {
+    it('does not report object injection: obj[key] with a variable key is almost always fine', async () => {
       const findings = await review('export const first = (items, i) => items[i];\n');
 
-      const hit = findings.find((f) => f.message.includes('security/detect-object-injection'));
-      expect(hit).toBeDefined();
-      expect(hit).toMatchObject({ severity: 'low', category: 'security' });
+      expect(findings.filter((f) => f.message.includes('detect-object-injection'))).toEqual([]);
+    });
+
+    it('reports == and != as a bug, but not a comparison with null', async () => {
+      const findings = await review("export const f = (a, b) => a == b || a != '1' || a == null;\n");
+
+      const hits = findings.filter((f) => f.message.includes('(eqeqeq)'));
+      expect(hits).toHaveLength(2);
+      expect(hits[0]).toMatchObject({ category: 'bug', severity: 'medium' });
+    });
+
+    it.each([
+      ['innerHTML', 'export const show = (el, note) => { el.innerHTML = `<p>${note}</p>`; };'],
+      ['outerHTML', 'export const show = (el, note) => { el.outerHTML = note; };'],
+      ['insertAdjacentHTML', "export const show = (el, note) => el.insertAdjacentHTML('beforeend', note);"],
+      ['document.write', 'export const show = (note) => document.write(note);']
+    ])('reports HTML written from a string with %s as a high security finding', async (sink, code) => {
+      const [hit] = (await review(`${code}\n`)).filter((f) => f.message.includes('(XSS)'));
+
+      expect(hit.message).toContain(sink === 'document.write' ? 'document.write' : sink);
+      expect(hit).toMatchObject({ category: 'security', severity: 'high', line: 1 });
+    });
+
+    it('does not report reading innerHTML or setting textContent', async () => {
+      const findings = await review('export const f = (el, t) => { el.textContent = t; return el.innerHTML; };\n');
+
+      expect(findings.filter((f) => f.message.includes('(XSS)'))).toEqual([]);
     });
 
     it('still rates other security rules as high', async () => {
@@ -169,9 +193,9 @@ describe('eslintAdapter', () => {
 
   describe('repeated findings', () => {
     it('reports one finding when the same rule fires twice on a line with the same message', async () => {
-      const findings = await review('export const cost = (items, i) => items[i].price * items[i].qty;\n', 'cart.ts');
+      const findings = await review('export const f = (a, b, c) => a == b && b == c;\n', 'cart.ts');
 
-      const hits = findings.filter((f) => f.message.includes('security/detect-object-injection'));
+      const hits = findings.filter((f) => f.message.includes('(eqeqeq)'));
       expect(hits).toHaveLength(1);
     });
 
@@ -183,9 +207,9 @@ describe('eslintAdapter', () => {
     });
 
     it('keeps the same message on different lines', async () => {
-      const findings = await review('export const a = (items, i) => items[i];\nexport const b = (items, i) => items[i];\n');
+      const findings = await review('export const a = (x, y) => x == y;\nexport const b = (x, y) => x == y;\n');
 
-      const hits = findings.filter((f) => f.message.includes('security/detect-object-injection'));
+      const hits = findings.filter((f) => f.message.includes('(eqeqeq)'));
       expect(hits.map((f) => f.line)).toEqual([1, 2]);
     });
   });

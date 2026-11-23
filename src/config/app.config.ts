@@ -68,8 +68,11 @@ export const appConfig = {
   ollamaBaseUrl: getEnvString('OLLAMA_BASE_URL', 'http://localhost:11434').replace(/\/+$/, ''),
   llmModel: getEnvString('LLM_MODEL', 'qwen2.5-coder:7b'),
   llmTemperature: getEnvFloat('LLM_TEMPERATURE', 0),
-  llmTimeoutMs: getEnvNumber('LLM_TIMEOUT_MS', 40000),
-  llmNumCtx: getEnvNumber('LLM_NUM_CTX', 8192),
+  // 90 s: a Java file took up to 50 s on an M4 laptop, warm. The chatbot must wait longer than this.
+  llmTimeoutMs: getEnvNumber('LLM_TIMEOUT_MS', 90000),
+  // The same as the chatbot's REVIEW_NUM_CTX (Ask Lens uses this model too). Ollama reloads a
+  // model to change its context, and a review that waited for the reload timed out with no findings.
+  llmNumCtx: getEnvNumber('LLM_NUM_CTX', 16384),
   llmKeepAlive: getEnvString('LLM_KEEP_ALIVE', '30m'),
   llmMaxCodeChars: getEnvNumber('LLM_MAX_CODE_CHARS', 12000),
   llmMaxFindings: getEnvNumber('LLM_MAX_FINDINGS', 20),
@@ -79,7 +82,7 @@ export const appConfig = {
   corsOrigin: getEnvString('CORS_ORIGIN', ''),
 
   // Shutdown and readiness
-  shutdownTimeoutMs: getEnvNumber('SHUTDOWN_TIMEOUT_MS', 50000),
+  shutdownTimeoutMs: getEnvNumber('SHUTDOWN_TIMEOUT_MS', 100000),
   readinessTimeoutMs: getEnvNumber('READINESS_TIMEOUT_MS', 3000),
 
 
