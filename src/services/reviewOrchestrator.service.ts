@@ -7,12 +7,13 @@ import { buildSummary } from './reviewSummary.service';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { llmAdapter } from './adapters/llm.adapter';
+import { secretsAdapter } from './adapters/secrets.adapter';
 
-// Analyzers get registered here as you build them (eslint, ruff, llm).
-const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter, llmAdapter];
+// Every analyzer that supports the language runs, in parallel.
+const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter, secretsAdapter, llmAdapter];
 
 // Used by any analyzer that does not declare its own `timeoutMs`.
-// Stays well under the chatbot's 60 s timeout.
+// The linters finish in well under a second; the AI reviewer sets its own, longer limit.
 const DEFAULT_ANALYZER_TIMEOUT_MS = 45_000;
 
 // Timings above these are logged as warnings.
@@ -60,7 +61,8 @@ async function runAnalyzer(analyzer: Analyzer, request: ReviewRequest): Promise<
 export async function reviewCode(request: ReviewRequest): Promise<ReviewResponse> {
     const log = createChildLogger({ requestId: request.requestId });
     const reviewStarted = Date.now();
-    const active = analyzers.filter((a) => a.supports(request.language));
+    const supporting = analyzers.filter((a) => a.supports(request.language));
+    const active = supporting.some((a) => !a.supplementary) ? supporting : [];
 
     // Nothing can review this language: say so instead of returning a misleading clean result.
     if (active.length === 0) {

@@ -4,6 +4,7 @@ import { Finding, SEVERITY_ORDER } from '../models/finding';
 const SOURCE_PRIORITY: Record<string, number> = {
     eslint: 0,
     ruff: 0,
+    secrets: 0,
     llm: 1
 };
 
@@ -36,14 +37,19 @@ const sameTopic = (a: Finding, b: Finding): boolean =>
 const categoriesFit = (a: Finding, b: Finding): boolean =>
     sameTopic(a, b) || (a.category && b.category ? a.category === b.category : a.line === b.line);
 
-// The same issue means: same file, found by DIFFERENT analyzers, on the same line or one
-// line apart, with fitting categories. Findings from one analyzer are only merged when
-// they are copies (see withoutCopies); otherwise they are separate rules.
-const isSameIssue = (a: Finding, b: Finding): boolean =>
-    a.file === b.file &&
-    a.source !== b.source &&
-    Math.abs(a.line - b.line) <= LINE_TOLERANCE &&
-    categoriesFit(a, b);
+const fromModel = (f: Finding): boolean => (f.source ?? 'llm') === 'llm';
+
+// The same issue means: same file, found by DIFFERENT analyzers, with fitting categories.
+// - With the model on one side: the same line or one line apart, since its numbers can be off.
+// - Between two exact checks (linters, the secret scan): the same line and the same topic only.
+//   Their lines are exact, and the same category is not enough: a secret on one line and an
+//   XSS warning on the next are both "security" but two different problems.
+// Findings from one analyzer are only merged when they are copies (see withoutCopies).
+const isSameIssue = (a: Finding, b: Finding): boolean => {
+    if (a.file !== b.file || a.source === b.source) return false;
+    if (fromModel(a) || fromModel(b)) return Math.abs(a.line - b.line) <= LINE_TOLERANCE && categoriesFit(a, b);
+    return a.line === b.line && sameTopic(a, b);
+};
 
 const normalize = (message: string): string => message.trim().replace(/\s+/g, ' ').toLowerCase();
 

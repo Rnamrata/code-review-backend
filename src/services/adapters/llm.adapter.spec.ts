@@ -90,8 +90,8 @@ describe('timeoutMs', () => {
     expect(llmAdapter.timeoutMs).toBe(12345);
   });
 
-  it('stays below the chatbot 60 second limit by default', () => {
-    expect(original.llmTimeoutMs).toBeLessThan(60_000);
+  it('stays below the time the chatbot waits for a review (120 s)', () => {
+    expect(original.llmTimeoutMs).toBeLessThan(120_000);
   });
 });
 
@@ -189,12 +189,13 @@ describe('the request to Ollama', () => {
     });
 
     it('only mentions the problems that can be in this code', async () => {
-      await llmAdapter.analyze(java('String PASSWORD = "admin123";\n'));
+      await llmAdapter.analyze(java('Random r = new Random();\nString token = Long.toHexString(r.nextLong());\n'));
 
-      expect(system()).toMatch(/password, key or token/);
-      expect(system()).not.toMatch(/equals\(\)/);
-      expect(system()).not.toMatch(/swallowed/);
-      expect(system()).not.toMatch(/SQL/);
+      const reminders = system().split('\n').filter((line) => line.startsWith('- ')).join('\n');
+      expect(reminders).toMatch(/SecureRandom/);
+      expect(reminders).not.toMatch(/equals\(\)/);
+      expect(reminders).not.toMatch(/swallowed/);
+      expect(reminders).not.toMatch(/SQL/);
     });
 
     it('adds the three general reminders when no card fits the code', async () => {
@@ -241,11 +242,43 @@ describe('the request to Ollama', () => {
       expect(system().split('\n').filter((line) => line.startsWith('- '))).toHaveLength(6);
     });
 
-    it.each(['python', 'javascript', 'typescript'])('does not add the Java reminders for %s, even if the code would match', async (language) => {
-      await llmAdapter.analyze(request({ language, code: 'String PASSWORD = "x";\nreturn a == "b";\ncatch (Exception e) {}\n' }));
+    const JAVA_LOOKING = 'String s = x;\nreturn s == "b";\ncatch (Exception e) {}\n';
+    it.each([
+      ['python', 'Python', 'avg = total / len(xs)\n'],
+      ['javascript', 'JavaScript/TypeScript', "const r = fetch('/x');\n"],
+      ['typescript', 'JavaScript/TypeScript', "const r = fetch('/x');\n"]
+    ])('gives %s its own reminders, not the Java ones, even if the code would match', async (language, name, own) => {
+      await llmAdapter.analyze(request({ language, code: own + JAVA_LOOKING }));
+
+      expect(system()).toContain(`Also check for these ${name} problems:`);
+      expect(system()).not.toMatch(/equals\(\)/);
+      expect(system()).not.toMatch(/Java problems/);
+    });
+
+    it('gives Python the cards that fit its code', async () => {
+      await llmAdapter.analyze(request({ language: 'python', code: 'def avg(xs):\n    return sum(xs) / len(xs)\n' }));
+
+      expect(system()).toMatch(/ZeroDivisionError/);
+      expect(system()).not.toMatch(/with block/);
+    });
+
+    it('gives TypeScript the cards that fit its code', async () => {
+      await llmAdapter.analyze(request({ language: 'typescript', code: "const r = fetch('/x');\nfor (let i = 0; i <= a.length; i++) {}\n" }));
+
+      expect(system()).toMatch(/not awaited/);
+      expect(system()).toMatch(/i <= length/);
+    });
+
+    it('explains the categories, including reliability', async () => {
+      await llmAdapter.analyze(request({ language: 'python' }));
+
+      expect(system()).toMatch(/reliability for something that fails or leaks at run time/);
+    });
+
+    it('gives a Python or TypeScript file that matches no card no reminders at all', async () => {
+      await llmAdapter.analyze(request({ language: 'python', code: 'x = 1\n' }));
 
       expect(system()).not.toMatch(/Also check/);
-      expect(system()).not.toMatch(/equals\(\)/);
     });
 
     it('does not put the reminders in the user message', async () => {
@@ -256,13 +289,13 @@ describe('the request to Ollama', () => {
     });
 
     it('records which reminders a Java review got, in the debug log', async () => {
-      await llmAdapter.analyze(java('String PASSWORD = "x";\nreturn a == "b";\n'));
+      await llmAdapter.analyze(java('int n = attempts.get(name);\nString s = read();\nreturn s == "b";\n'));
 
-      expect(debugMock).toHaveBeenCalledWith('LLM reply parsed', expect.objectContaining({ rules: ['hardcoded-secret', 'string-equality'] }));
+      expect(debugMock).toHaveBeenCalledWith('LLM reply parsed', expect.objectContaining({ rules: ['unboxing-null', 'string-equality', 'null-result'] }));
     });
 
-    it('records no reminders for another language', async () => {
-      await llmAdapter.analyze(request({ language: 'python' }));
+    it('records no reminders for a Python file that matches no card', async () => {
+      await llmAdapter.analyze(request({ language: 'python', code: 'x = 1\n' }));
 
       expect(debugMock).toHaveBeenCalledWith('LLM reply parsed', expect.objectContaining({ rules: [] }));
     });
@@ -400,7 +433,7 @@ describe('turning the answer into findings', () => {
     expect((await llmAdapter.analyze(request()))[0].category).toBeUndefined();
   });
 
-  it.each(['security', 'bug', 'maintainability', 'performance'])('keeps the category %s', async (category) => {
+  it.each(['security', 'bug', 'reliability', 'maintainability', 'performance'])('keeps the category %s', async (category) => {
     fetchMock.mockImplementation(async () => answer([item({ category })]));
 
     expect((await llmAdapter.analyze(request()))[0].category).toBe(category);

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // needs and loads a fresh copy. An empty value makes the setting fall back to its default.
 const loadConfig = async (env: Record<string, string> = {}) => {
   vi.resetModules();
-  for (const key of ['MAX_FILE_SIZE_MB', 'CORS_ORIGIN', 'SHUTDOWN_TIMEOUT_MS', 'READINESS_TIMEOUT_MS']) {
+  for (const key of ['MAX_FILE_SIZE_MB', 'CORS_ORIGIN', 'SHUTDOWN_TIMEOUT_MS', 'READINESS_TIMEOUT_MS', 'LLM_TIMEOUT_MS', 'LLM_NUM_CTX']) {
     vi.stubEnv(key, '');
   }
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
@@ -43,11 +43,30 @@ describe('CORS setting', () => {
   });
 });
 
-describe('shutdown and readiness settings', () => {
-  it('lets running reviews finish for 50 seconds by default, longer than one review can take', async () => {
+describe('AI reviewer settings', () => {
+  it('gives the model 90 seconds by default, less than the chatbot waits for a review (120 s)', async () => {
     const config = await loadConfig();
 
-    expect(config.shutdownTimeoutMs).toBe(50000);
+    expect(config.llmTimeoutMs).toBe(90000);
+    expect(config.llmTimeoutMs).toBeLessThan(120000);
+  });
+
+  it("uses the chatbot's Ask Lens context size by default, so Ollama never reloads the model between them", async () => {
+    expect((await loadConfig()).llmNumCtx).toBe(16384);
+  });
+
+  it('reads LLM_TIMEOUT_MS and LLM_NUM_CTX', async () => {
+    const config = await loadConfig({ LLM_TIMEOUT_MS: '5000', LLM_NUM_CTX: '4096' });
+
+    expect([config.llmTimeoutMs, config.llmNumCtx]).toEqual([5000, 4096]);
+  });
+});
+
+describe('shutdown and readiness settings', () => {
+  it('lets running reviews finish for 100 seconds by default, longer than one review can take', async () => {
+    const config = await loadConfig();
+
+    expect(config.shutdownTimeoutMs).toBe(100000);
     expect(config.shutdownTimeoutMs).toBeGreaterThan(config.llmTimeoutMs);
   });
 

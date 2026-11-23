@@ -21,15 +21,17 @@ const CASES: Record<string, { yes: string[]; no: string[] }> = {
       'String message = "Please update " + name;'
     ]
   },
-  'hardcoded-secret': {
-    yes: [
-      'private static final String PASSWORD = "admin123";',
-      'String apiKey = "sk_live_123";',
-      'String api_key = "abc";',
-      'private String dbPassword = "root";',
-      'String authToken = "abcdef";'
-    ],
-    no: ['String password = System.getenv("DB_PASSWORD");', 'String name = "admin";', 'int tokenCount = 5;', 'String password = readPassword();']
+  'unboxing-null': {
+    yes: ['int attempts = loginAttempts.get(username);', 'long total = this.totals.get(key);', 'boolean on = flags.get(name);'],
+    no: ['Integer attempts = loginAttempts.get(username);', 'int n = list.size();', 'String s = map.get(k);']
+  },
+  'use-before-null-check': {
+    yes: ['if (user == null) {', 'if (null != result) return;', 'return value != null;'],
+    no: ['if (user.isEmpty()) {', 'Object o = null;', 'int n = 0;']
+  },
+  'off-by-one': {
+    yes: ['for (int i = 0; i <= items.length; i++) {', 'for (int i = 0; i <= list.size(); i++)', 'while (i <= this.items.size()) {'],
+    no: ['for (int i = 0; i < items.length; i++) {', 'if (a <= b) {', 'for (int i = 0; i <= 10; i++)']
   },
   'command-injection': {
     yes: ['Runtime.getRuntime().exec(cmd);', 'Runtime . getRuntime ( ) . exec(cmd)', 'new ProcessBuilder("sh", "-c", cmd).start();'],
@@ -162,7 +164,7 @@ describe.each(Object.entries(CASES))('card %s', (id, { yes, no }) => {
 
 describe('selectRules', () => {
   it('falls back to the three general reminders for code that matches no card', () => {
-    expect(ids('public class A {\n  int add(int a, int b) { return a + b; }\n}')).toEqual(['string-equality', 'null-result', 'swallowed-exception']);
+    expect(ids('public class A {\n  int add(int a, int b) { return a + b; }\n}')).toEqual(['swallowed-exception', 'string-equality', 'null-result']);
   });
 
   it('names the general reminders by cards that exist', () => {
@@ -180,14 +182,14 @@ describe('selectRules', () => {
   });
 
   it('picks the cards that match, in the order of the list', () => {
-    const code = 'String PASSWORD = "x";\nreturn role == "admin";\ntry { a(); } catch (Exception e) { }';
+    const code = 'Random r = new Random(); String token = next(r);\nreturn role == "admin";\ntry { a(); } catch (Exception e) { }';
 
-    expect(ids(code)).toEqual(['hardcoded-secret', 'string-equality', 'swallowed-exception']);
+    expect(ids(code)).toEqual(['insecure-random', 'swallowed-exception', 'string-equality']);
   });
 
   it('puts security cards before the others when there are too many', () => {
     const code = [
-      'String PASSWORD = "x";',
+      'int n = attempts.get(name);',
       'Runtime.getRuntime().exec(c);',
       'new FileReader(p);',
       'new ObjectInputStream(i);',
@@ -200,7 +202,7 @@ describe('selectRules', () => {
     const picked = ids(code);
 
     expect(picked).toHaveLength(MAX_RULES);
-    expect(picked).toEqual(['hardcoded-secret', 'command-injection', 'path-traversal', 'unsafe-deserialization', 'xxe', 'weak-crypto']);
+    expect(picked).toEqual(['command-injection', 'path-traversal', 'unsafe-deserialization', 'xxe', 'weak-crypto', 'unboxing-null']);
   });
 
   it('never picks more than MAX_RULES', () => {

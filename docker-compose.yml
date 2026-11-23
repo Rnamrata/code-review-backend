@@ -32,6 +32,6 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
-    # A review can take up to 40 s, and the service waits up to 50 s for running reviews
+    # A review can take up to 90 s, and the service waits up to 100 s for running reviews
     # (SHUTDOWN_TIMEOUT_MS). Docker's default of 10 s would kill them half way.
-    stop_grace_period: 60s
+    stop_grace_period: 110s

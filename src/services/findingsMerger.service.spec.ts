@@ -95,12 +95,13 @@ describe('mergeFindings', () => {
     });
 
     it('keeps the earlier wording when both analyzers are linters', () => {
-      const [merged] = mergeFindings([
-        [finding({ source: 'eslint', message: 'from eslint' })],
-        [finding({ source: 'ruff', message: 'from ruff' })]
+      const merged = mergeFindings([
+        [finding({ source: 'eslint', message: 'SQL from eslint' })],
+        [finding({ source: 'ruff', message: 'SQL from ruff' })]
       ]);
 
-      expect(merged.message).toBe('from eslint');
+      expect(merged).toHaveLength(1);
+      expect(merged[0].message).toBe('SQL from eslint');
     });
 
     it.each([
@@ -245,6 +246,44 @@ describe('mergeFindings', () => {
       const result = mergeFindings([
         [finding({ source: 'ruff', line: 5 })],
         [finding({ source: 'llm', line: 4, message: 'first' }), finding({ source: 'llm', line: 6, message: 'second' })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+  });
+
+  describe('two exact checks (linters and the secret scan)', () => {
+    it('keeps a secret and an XSS warning on the next line apart, though both are security', () => {
+      const result = mergeFindings([
+        [finding({ source: 'eslint', line: 2, category: 'security', message: 'HTML is set from a string with innerHTML (XSS).' })],
+        [finding({ source: 'secrets', line: 1, category: 'security', message: 'Hard-coded Stripe live publishable key in the code' })]
+      ]);
+
+      expect(result.map((f) => f.source).sort()).toEqual(['eslint', 'secrets']);
+    });
+
+    it('keeps two findings on the same line apart when they are about different things', () => {
+      const result = mergeFindings([
+        [finding({ source: 'eslint', line: 1, category: 'security', message: 'HTML is set from a string with innerHTML (XSS).' })],
+        [finding({ source: 'secrets', line: 1, category: 'security', message: 'Hard-coded Stripe live secret key in the code' })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it("merges Ruff's hard-coded password with the secret scan's, on the same line", () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 13, category: 'security', message: 'Possible hardcoded password assigned to: "DB_PASSWORD" (S105)' })],
+        [finding({ source: 'secrets', line: 13, category: 'security', message: 'Hard-coded secret: DB_PASSWORD is set to a string in the code' })]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('does not give two exact checks the one-line allowance the model gets', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 13, category: 'security', message: 'Possible hardcoded password (S105)' })],
+        [finding({ source: 'secrets', line: 14, category: 'security', message: 'Hard-coded secret: password' })]
       ]);
 
       expect(result).toHaveLength(2);

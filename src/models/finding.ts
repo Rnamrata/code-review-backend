@@ -1,6 +1,6 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-export type FindingSource = 'eslint' | 'ruff' | 'llm';
+export type FindingSource = 'eslint' | 'ruff' | 'llm' | 'secrets';
 
 export interface Finding {
     file: string;

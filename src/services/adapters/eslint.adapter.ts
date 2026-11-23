@@ -10,6 +10,25 @@ import { Analyzer, ReviewRequest } from '../../models/review.model';
 import { logger } from '../../utils/logger.util';
 
 
+const XSS_ADVICE = 'text from a user can run as script (XSS). Set textContent, or build the elements, instead';
+const XSS_SINKS = [
+    {
+        selector: 'AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]',
+        message: `HTML is set from a string with innerHTML or outerHTML: ${XSS_ADVICE}.`
+    },
+    {
+        selector: "CallExpression[callee.property.name='insertAdjacentHTML']",
+        message: `HTML is inserted from a string with insertAdjacentHTML: ${XSS_ADVICE}.`
+    },
+    {
+        selector: "CallExpression[callee.object.name='document'][callee.property.name=/^(write|writeln)$/]",
+        message: `HTML is written from a string with document.write: ${XSS_ADVICE}.`
+    }
+];
+
+// Rules whose findings are about security although they are not in the security plugin
+const SECURITY_RULES = new Set(['no-restricted-syntax']);
+
 // One config for JS and TS. Parsing is syntax-only (no type information),
 // so there is no tsconfig lookup and nothing is read from disk.
 const config = tseslint.config (
@@ -22,6 +41,19 @@ const config = tseslint.config (
         files: ['**/*.{js,jsx,mjs,cjs,ts,tsx}'],
         languageOptions: {
             parserOptions: { ecmaFeatures: { jsx: true } }
+        }
+    },
+    {
+        files: ['**/*.{js,jsx,mjs,cjs,ts,tsx}'],
+        rules: {
+            // == and != convert types before comparing ('1' == 1); comparing with null is fine
+            eqeqeq: ['error', 'always', { null: 'ignore' }],
+            // Every obj[key] with a variable key: almost always a false alarm (it flagged a
+            // plain array loop), so it hid the findings that matter
+            'security/detect-object-injection': 'off',
+            // HTML written from a string, where text from a user can run as script (XSS). Built
+            // in, so no extra plugin is needed.
+            'no-restricted-syntax': ['error', ...XSS_SINKS]
         }
     },
     {
@@ -48,7 +80,7 @@ const getESLint = (): ESLint =>
 
 // Rules that point at a likely bug rather than a style or upkeep issue.
 const BUG_RULES = new Set([
-    'no-undef','no-unreachable', 'no-dupe-args','no-dupe-keys','no-redeclare',
+    'eqeqeq', 'no-undef','no-unreachable', 'no-dupe-args','no-dupe-keys','no-redeclare',
     'no-self-assign', 'no-const-assign', 'no-cond-assign', 'no-fallthrough',
     'no-empty', 'no-func-assign', 'no-import-assign', 'use-isnan', 'valid-typeof',
     'no-unsafe-finally', 'no-unsafe-negation', 'getter-return', 'no-constant-condition'
@@ -57,15 +89,12 @@ const BUG_RULES = new Set([
 function toCategory(message: Linter.LintMessage): string {
     if (message.fatal) return 'bug'; // syntax error
     const rule = message.ruleId ?? '';
-    if (rule.startsWith('security/')) return 'security';
+    if (rule.startsWith('security/') || SECURITY_RULES.has(rule)) return 'security';
     if (BUG_RULES.has(rule)) return 'bug';
     return 'maintainability';
 }
 
-const NOISY_RULES = new Set(['security/detect-object-injection']);
-
 function toSeverity(message: Linter.LintMessage, category: string): Severity {
-    if (message.ruleId && NOISY_RULES.has(message.ruleId)) return 'low';
     if (message.fatal || category === 'security') return 'high';
     return message.severity === 2 ? 'medium' : 'low';
 }

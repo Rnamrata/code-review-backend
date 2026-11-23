@@ -354,7 +354,8 @@ components:
 
     FindingSource:
       type: string
-      enum: [eslint, ruff, llm]
+      enum: [eslint, ruff, secrets, llm]
+      description: '`secrets` is the scan for keys, tokens and passwords written into the code. It runs next to the other analyzers for Python, JavaScript, TypeScript and Java, never on its own.'
 
     Finding:
       type: object
@@ -373,7 +374,7 @@ components:
           $ref: '#/components/schemas/Severity'
         category:
           type: string
-          description: Usually `security`, `bug`, `maintainability` or `performance`.
+          description: Usually `security`, `bug`, `reliability` (fails or leaks at run time, such as an unclosed file or a swallowed exception), `maintainability` or `performance`.
         source:
           $ref: '#/components/schemas/FindingSource'
         suggestion:

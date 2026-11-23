@@ -6,6 +6,7 @@ import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
 import { llmAdapter } from './adapters/llm.adapter';
+import { secretsAdapter } from './adapters/secrets.adapter';
 import { metrics, registry } from './metrics.service';
 
 // The real adapters run ESLint and Ruff. Replace them, so these tests are about
@@ -25,10 +26,14 @@ vi.mock('../utils/logger.util', () => {
 vi.mock('./adapters/llm.adapter', () => ({
   llmAdapter: { name: 'llm', supports: vi.fn(), analyze: vi.fn() }
 }));
+vi.mock('./adapters/secrets.adapter', () => ({
+  secretsAdapter: { name: 'secrets', supplementary: true, supports: vi.fn(), analyze: vi.fn() }
+}));
 
 const eslint = vi.mocked(eslintAdapter);
 const ruff = vi.mocked(ruffAdapter);
 const llm = vi.mocked(llmAdapter);
+const secrets = vi.mocked(secretsAdapter);
 
 const TIMEOUT_MS = 45_000;
 
@@ -62,6 +67,9 @@ beforeEach(() => {
   ruff.analyze.mockReset();
   llm.supports.mockReset();
   llm.analyze.mockReset();
+  // Off unless a test turns it on, so the other tests count only the analyzers they set up
+  secrets.supports.mockReset();
+  secrets.analyze.mockReset();
 
   supports(eslint, 'javascript', 'typescript');
   supports(ruff, 'python');
@@ -190,8 +198,8 @@ describe('combining results', () => {
 
   it('merges the same issue found by two analyzers into one finding', async () => {
     supports(eslint, 'python');
-    eslint.analyze.mockResolvedValue([finding({ source: 'eslint', line: 3, severity: 'low', category: 'bug' })]);
-    ruff.analyze.mockResolvedValue([finding({ source: 'ruff', line: 3, severity: 'high', category: 'bug' })]);
+    eslint.analyze.mockResolvedValue([finding({ source: 'eslint', line: 3, severity: 'low', category: 'bug', message: 'SQL built from a string' })]);
+    ruff.analyze.mockResolvedValue([finding({ source: 'ruff', line: 3, severity: 'high', category: 'bug', message: 'Possible SQL injection (S608)' })]);
 
     const result = await reviewCode(request());
 
@@ -456,6 +464,29 @@ describe('logging', () => {
   });
 });
 
+describe('the secret scan', () => {
+  it('does not run on its own: a language with only the scan is still unsupported', async () => {
+    supports(secrets, 'java');
+    secrets.analyze.mockResolvedValue([]);
+
+    const result = await reviewCode(request({ language: 'java' }));
+
+    expect(secrets.analyze).not.toHaveBeenCalled();
+    expect(result.warnings).toEqual([{ source: 'orchestrator', message: 'No analyzers support this language "java"' }]);
+  });
+
+  it('runs next to the linter and its findings are merged in', async () => {
+    supports(secrets, 'python');
+    secrets.analyze.mockResolvedValue([finding({ line: 9, source: 'secrets', category: 'security', severity: 'high', message: 'Hard-coded secret' })]);
+    ruff.analyze.mockResolvedValue([finding({ line: 2, message: 'unused import' })]);
+
+    const result = await reviewCode(request());
+
+    expect(secrets.analyze).toHaveBeenCalledTimes(1);
+    expect(result.findings.map((f) => f.source)).toEqual(['secrets', 'ruff']);
+  });
+});
+
 describe('timeouts', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -608,8 +639,8 @@ describe('metrics', () => {
 
   it('counts a finding once when two analyzers reported the same problem', async () => {
     supports(eslint, 'python');
-    ruff.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'ruff' })]);
-    eslint.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'eslint' })]);
+    ruff.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'ruff', message: 'Possible hardcoded password (S105)' })]);
+    eslint.analyze.mockResolvedValue([finding({ line: 5, category: 'security', source: 'eslint', message: 'Hard-coded password' })]);
 
     await reviewCode(request());
 
