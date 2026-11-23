@@ -121,6 +121,13 @@ paths:
                         severity: high
                         category: security
                         source: ruff
+                        why:
+                          id: command-injection
+                          title: Command run with outside text
+                          reason: If any part of a shell command comes from outside, a caller can add their own commands to it.
+                          fix: Call subprocess.run([...]) with a list of arguments and shell=False.
+                          source: OWASP OS Command Injection Defense
+                          url: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
                     warnings:
                       - source: llm
                         message: Ollama is unreachable at http://localhost:11434
@@ -380,6 +387,35 @@ components:
         suggestion:
           type: string
           description: A suggested fix, when the analyzer has one.
+        why:
+          $ref: '#/components/schemas/Why'
+
+    Why:
+      type: object
+      description: >-
+        Why the finding matters, how to fix it and where the advice comes from, in our own words with a
+        link. Linter and secret-scan findings get the card for their rule; AI findings get one only
+        when the topic of their message clearly fits. Missing when no card fits.
+      required: [id, title, reason, fix, source, url]
+      properties:
+        id:
+          type: string
+          description: The card, such as `sql-injection`.
+        title:
+          type: string
+          example: SQL built from input
+        reason:
+          type: string
+          description: Why it matters.
+        fix:
+          type: string
+          description: How to fix it, worded for the file's language.
+        source:
+          type: string
+          example: OWASP SQL Injection Prevention
+        url:
+          type: string
+          format: uri
 
     Warning:
       type: object

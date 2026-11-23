@@ -4,6 +4,7 @@ import { createChildLogger, logError, logPerformance } from '../utils/logger.uti
 import { mergeFindings } from './findingsMerger.service';
 import { metrics } from './metrics.service';
 import { buildSummary } from './reviewSummary.service';
+import { withWhy } from './why/whyMatcher';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
 import { llmAdapter } from './adapters/llm.adapter';
@@ -94,7 +95,8 @@ export async function reviewCode(request: ReviewRequest): Promise<ReviewResponse
         }
     });
 
-    const findings = mergeFindings(lists);
+    // Each finding gets its "why" card: the reason, the fix and where the advice comes from
+    const findings = withWhy(mergeFindings(lists), request.language);
 
     metrics.recordReview(warnings.length > 0 ? 'partial' : 'completed', (Date.now() - reviewStarted) / 1000, findings);
 

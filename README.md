@@ -80,7 +80,8 @@ curl -s -X POST http://localhost:4000/review \
 ```
 
 - `findings` is top-level and sorted by severity, then line. Each has `file`,
-  `line`, `message`, `severity`, and optionally `category`, `source`, `suggestion`.
+  `line`, `message`, `severity`, and optionally `category`, `source`, `suggestion` and `why`
+  (see [Why cards](#why-cards)).
 - `warnings` lists non-fatal problems: an analyzer failed or timed out, or no
   analyzer supports the language. An empty `findings` list with a warning does
   **not** mean the code is clean.
@@ -198,7 +199,7 @@ docker run --rm -p 4000:4000 --stop-timeout 60 code-review-backend
 Or with Docker Compose, which also sets the stop timeout, the read-only filesystem and the defaults:
 
 ```bash
-docker compose up --build                     # ESLint and Ruff only
+docker compose up --build                     # ESLint, Ruff and the secret scan
 REVIEW_LLM_ENABLED=true docker compose up --build    # also asks Ollama running on your machine
 ```
 
@@ -302,6 +303,30 @@ model, and Ollama reloads a model to change its context size. A review that had 
 reload ran past its time limit and came back with no AI findings, which looked like the model
 giving different answers to the same file.
 
+## Why cards
+
+Each finding that has one carries a `why` card: why the problem matters, how to fix it (worded for
+the file's language), and where the advice comes from, with a link. The 40 cards are in
+[`src/services/why/whyCards.ts`](src/services/why/whyCards.ts), written in our own words from the
+OWASP cheat sheets, PEP 8 and the Python docs, MDN and the Google JavaScript Style Guide, the
+TypeScript handbook and Oracle's Java docs.
+
+```json
+"why": {
+  "id": "sql-injection",
+  "title": "SQL built from input",
+  "reason": "Text that reaches the query can change what it does: one quote in a name can read, change or delete other rows.",
+  "fix": "Pass values as parameters: cursor.execute(\"... WHERE name = ?\", (name,)).",
+  "source": "OWASP SQL Injection Prevention",
+  "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+}
+```
+
+Linter and secret-scan findings get the card for their rule (`S608`, `eqeqeq`, …). AI findings get
+one only when the topic of their message clearly fits; otherwise none, rather than a wrong one. To
+add a card, add it to `WHY_CARDS` and point a rule or topic at it in
+[`whyMatcher.ts`](src/services/why/whyMatcher.ts); the tests check that every rule points to a card.
+
 ## Configuration
 
 Set in `.env` (see `.env.example`):
@@ -316,6 +341,7 @@ Set in `.env` (see `.env.example`):
 | `LLM_ENABLED` | `false` | turn the LLM analyzer on |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | where Ollama is running |
 | `LLM_MODEL` | `qwen2.5-coder:7b` | model used for reviews |
+| `LLM_TEMPERATURE`, `LLM_SEED` | `0`, `42` | keep the model's answers the same for the same file |
 | `LLM_TIMEOUT_MS` | `90000` | LLM run limit (keep it under the chatbot's `REVIEW_TIMEOUT_SECONDS`, 120 s) |
 | `LLM_NUM_CTX`, `LLM_KEEP_ALIVE` | `16384`, `30m` | context window sent with each request (keep it equal to the chatbot's `REVIEW_NUM_CTX`); how long Ollama keeps the model loaded |
 | `LLM_MAX_CODE_CHARS`, `LLM_MAX_FINDINGS` | `12000`, `20` | larger files skip the LLM with a warning; most findings kept per review |
@@ -341,6 +367,7 @@ src/
   routes/        route wiring
   services/
     adapters/    one file per analyzer (ESLint, Ruff, secrets, LLM) and the LLM's rule cards
+    why/         the "why" cards and which finding gets which
     reviewOrchestrator.service.ts
     findingsMerger.service.ts
     reviewSummary.service.ts

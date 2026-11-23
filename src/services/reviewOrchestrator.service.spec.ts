@@ -464,6 +464,23 @@ describe('logging', () => {
   });
 });
 
+describe('why cards', () => {
+  it('adds each finding its card, worded for the language', async () => {
+    ruff.analyze.mockResolvedValue([
+      finding({ line: 20, message: 'Possible SQL injection vector through string-based query construction (S608)', category: 'security' }),
+      finding({ line: 3, message: 'Line too long (E501)' })
+    ]);
+
+    const result = await reviewCode(request());
+
+    const sql = result.findings.find((f) => f.line === 20)!;
+    const plain = result.findings.find((f) => f.line === 3)!;
+    expect(sql.why).toMatchObject({ id: 'sql-injection', source: 'OWASP SQL Injection Prevention' });
+    expect(sql.why?.fix).toContain('cursor.execute');
+    expect(plain.why).toBeUndefined();
+  });
+});
+
 describe('the secret scan', () => {
   it('does not run on its own: a language with only the scan is still unsupported', async () => {
     supports(secrets, 'java');
