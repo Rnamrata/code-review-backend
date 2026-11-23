@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 #claude
 *.claude
 .claude/
+# Reference PDFs (OWASP cheat sheets, style guides, books) stay on the laptop only:
+# several are copyrighted, and the service never reads them.
+knowledge-base/

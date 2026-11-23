@@ -251,6 +251,93 @@ describe('mergeFindings', () => {
     });
   });
 
+  describe('copies from one analyzer', () => {
+    it('drops a second finding with the same line and message', () => {
+      const result = mergeFindings([
+        [
+          finding({ source: 'llm', line: 27, message: 'Exception handling is too broad.' }),
+          finding({ source: 'llm', line: 27, message: 'Exception handling is too broad.' })
+        ]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('treats case and spacing differences as the same message', () => {
+      const result = mergeFindings([
+        [
+          finding({ source: 'llm', message: 'Broad  except' }),
+          finding({ source: 'llm', message: 'broad except ' })
+        ]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('keeps the same message on different lines', () => {
+      const result = mergeFindings([
+        [
+          finding({ source: 'llm', line: 20, message: 'SQL query built by joining strings' }),
+          finding({ source: 'llm', line: 54, message: 'SQL query built by joining strings' })
+        ]
+      ]);
+
+      expect(result.map((f) => f.line)).toEqual([20, 54]);
+    });
+
+    it('lets a linter absorb only one of two copies, and drops the other', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 27, category: 'maintainability', message: 'Do not use bare `except` (E722)' })],
+        [
+          finding({ source: 'llm', line: 27, category: 'security', message: 'Exception handling is too broad.' }),
+          finding({ source: 'llm', line: 27, category: 'security', message: 'Exception handling is too broad.' })
+        ]
+      ]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].source).toBe('ruff');
+    });
+  });
+
+  describe('the same topic under different categories', () => {
+    it('merges a linter and an LLM finding about a broad except on the same line', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 73, category: 'maintainability', message: 'Do not use bare `except` (E722)' })],
+        [finding({ source: 'llm', line: 73, category: 'security', message: 'Catching all exceptions hides errors.' })]
+      ]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].message).toBe('Do not use bare `except` (E722)');
+    });
+
+    it('merges them one line apart too', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', line: 48, category: 'security', message: 'Probable use of `requests` call without timeout (S113)' })],
+        [finding({ source: 'llm', line: 49, category: 'performance', message: 'No timeout on the request.' })]
+      ]);
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('keeps different topics with different categories on the same line apart', () => {
+      const result = mergeFindings([
+        [finding({ source: 'eslint', line: 46, category: 'maintainability', message: "'unused' is assigned a value but never used." })],
+        [finding({ source: 'llm', line: 46, category: 'security', message: "Hardcoded discount code 'SAVE10'." })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('does not match a topic word inside another word', () => {
+      const result = mergeFindings([
+        [finding({ source: 'ruff', category: 'maintainability', message: 'Unused nonetheless variable' })],
+        [finding({ source: 'llm', category: 'security', message: 'Value can be None' })]
+      ]);
+
+      expect(result).toHaveLength(2);
+    });
+  });
+
   describe('findings that look similar but are not the same issue', () => {
     it('keeps different categories on the same line apart', () => {
       const result = mergeFindings([
