@@ -27,7 +27,7 @@ POST /review  { filename, language, code }
   { findings, warnings, summary }
 ```
 
-Analysis comes from real tools (ESLint, Ruff) and, when enabled, a local model
+Analysis comes from real tools (ESLint, Ruff, PMD) and, when enabled, a local model
 through Ollama; the service only translates their output into one `Finding` shape. Submitted code is never executed or saved.
 
 ## API
@@ -200,7 +200,8 @@ sum(rate(analyzer_failures_total{reason="timeout"}[5m])) by (analyzer)
 
 ## Docker
 
-The image bundles Node, the compiled service and Ruff (pinned to 0.17.0). It runs as a normal
+The image bundles Node, the compiled service, Ruff (pinned to 0.17.0), and PMD (pinned to 7.29.0)
+with a Java 21 runtime. It runs as a normal
 user, on a read-only filesystem, and logs JSON lines to the console.
 
 ```bash
@@ -211,12 +212,12 @@ docker run --rm -p 4000:4000 --stop-timeout 60 code-review-backend
 Or with Docker Compose, which also sets the stop timeout, the read-only filesystem and the defaults:
 
 ```bash
-docker compose up --build                     # ESLint, Ruff and the secret scan
+docker compose up --build                     # ESLint, Ruff, PMD and the secret scan
 REVIEW_LLM_ENABLED=true docker compose up --build    # also asks Ollama running on your machine
 ```
 
 The service is then at `http://localhost:4000` (set `REVIEW_PORT` for another port). `docker ps`
-shows `healthy` once `GET /ready` passes: Ruff runs and, when the LLM is on, Ollama has the model.
+shows `healthy` once `GET /ready` passes: Ruff and PMD run and, when the LLM is on, Ollama has the model.
 
 - **Ollama stays on your machine.** From a container the host is `host.docker.internal`, which is
   the default `OLLAMA_BASE_URL` in the compose file. On a Mac this keeps the model on the GPU:
@@ -381,7 +382,7 @@ src/
   schemas/       what a request to /review must look like (zod)
   routes/        route wiring
   services/
-    adapters/    one file per analyzer (ESLint, Ruff, secrets, LLM) and the LLM's rule cards
+    adapters/    one file per analyzer (ESLint, Ruff, PMD, secrets, LLM) and the LLM's rule cards
     why/         the "why" cards and which finding gets which
     reviewOrchestrator.service.ts
     findingsMerger.service.ts
@@ -411,5 +412,5 @@ image and smoke-tests it (`scripts/docker-smoke-test.sh`). A third job publishes
 
 ## Status
 
-ESLint, Ruff, the secret scan and the optional LLM analyzer are working, with a test suite and CI.
+ESLint, Ruff, PMD, the secret scan and the optional LLM analyzer are working, with a test suite and CI.
 Rate limiting, CORS, graceful shutdown and a readiness check are in place. Logs are JSON lines with a request id, and `GET /metrics` serves Prometheus metrics. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).

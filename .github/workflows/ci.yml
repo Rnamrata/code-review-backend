@@ -158,7 +158,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
           labels: |
             org.opencontainers.image.title=code-review-backend
-            org.opencontainers.image.description=Stateless code-review service: ESLint, Ruff and an optional local LLM behind one POST /review endpoint
+            org.opencontainers.image.description=Stateless code-review service: ESLint, Ruff, PMD and an optional local LLM behind one POST /review endpoint
 
       # amd64 comes from the cache of the tested build; arm64 (Apple Silicon, ARM servers) is built here.
       - name: Build and push the image

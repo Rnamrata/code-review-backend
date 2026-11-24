@@ -6,7 +6,7 @@ info:
   description: |
     A small, stateless HTTP service. A client sends the code of one file; the service runs every
     analyzer that supports its language (ESLint for JavaScript and TypeScript, Ruff for Python,
-    and optionally a local model through Ollama), merges what they find and returns one list of
+    PMD for Java, and optionally a local model through Ollama), merges what they find and returns one list of
     findings. Submitted code is never executed or stored.
 
     **Partial results beat failures.** If one analyzer fails or times out, the review still
@@ -244,9 +244,9 @@ paths:
       operationId: getReadiness
       summary: Readiness check
       description: |
-        Checks what a review needs: that Ruff runs and, when `LLM_ENABLED=true`, that Ollama is
-        reachable and has the configured model. Answers `200` when every check passes and `503`
-        when one does not, so a container or load balancer can hold traffic back.
+        Checks what a review needs: that Ruff runs, that PMD runs (unless `PMD_ENABLED=false`) and,
+        when `LLM_ENABLED=true`, that Ollama is reachable and has the configured model. Answers
+        `200` when every check passes and `503` when one does not, so a container or load balancer can hold traffic back.
       responses:
         '200':
           description: Every check passed.
