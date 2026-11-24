@@ -4,6 +4,7 @@ import { ReviewRequest } from '../models/review.model';
 import { createChildLogger, logError, logPerformance, logger } from '../utils/logger.util';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
+import { pmdAdapter } from './adapters/pmd.adapter';
 import { reviewCode } from './reviewOrchestrator.service';
 import { llmAdapter } from './adapters/llm.adapter';
 import { secretsAdapter } from './adapters/secrets.adapter';
@@ -16,6 +17,9 @@ vi.mock('./adapters/eslint.adapter', () => ({
 }));
 vi.mock('./adapters/ruff.adapter', () => ({
   ruffAdapter: { name: 'ruff', supports: vi.fn(), analyze: vi.fn() }
+}));
+vi.mock('./adapters/pmd.adapter', () => ({
+  pmdAdapter: { name: 'pmd', supports: vi.fn(), analyze: vi.fn() }
 }));
 vi.mock('../utils/logger.util', () => {
   const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
@@ -34,6 +38,7 @@ const eslint = vi.mocked(eslintAdapter);
 const ruff = vi.mocked(ruffAdapter);
 const llm = vi.mocked(llmAdapter);
 const secrets = vi.mocked(secretsAdapter);
+const pmd = vi.mocked(pmdAdapter);
 
 const TIMEOUT_MS = 45_000;
 
@@ -70,6 +75,8 @@ beforeEach(() => {
   // Off unless a test turns it on, so the other tests count only the analyzers they set up
   secrets.supports.mockReset();
   secrets.analyze.mockReset();
+  pmd.supports.mockReset();
+  pmd.analyze.mockReset();
 
   supports(eslint, 'javascript', 'typescript');
   supports(ruff, 'python');
@@ -344,6 +351,21 @@ describe('the LLM analyzer', () => {
 
     expect(result.findings.map((f) => f.message)).toEqual(['from llm']);
     expect(result.warnings).toEqual([]);
+  });
+
+  it('runs next to PMD for Java, and a finding both report on one line is kept once', async () => {
+    supports(llm, 'java');
+    supports(pmd, 'java');
+    pmd.analyze.mockResolvedValue([
+      finding({ source: 'pmd', line: 12, category: 'reliability', message: 'Ensure that resources like this Connection object are closed after use (CloseResource)' })
+    ]);
+    llm.analyze.mockResolvedValue([finding({ source: 'llm', line: 12, category: 'reliability', message: 'Connection is never closed' })]);
+
+    const result = await reviewCode(request({ language: 'java', filename: 'A.java' }));
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({ source: 'pmd', line: 12 });
+    expect(result.findings[0].why?.id).toBe('unclosed-resource');
   });
 
   it('keeps the linter findings and adds a warning when it fails', async () => {

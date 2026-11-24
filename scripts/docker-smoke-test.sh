@@ -4,9 +4,9 @@
 #   scripts/docker-smoke-test.sh [image]        (default: code-review-backend:local)
 #
 # It checks: the container becomes healthy, /health and /ready answer, a JavaScript review finds
-# an ESLint finding, a Python review finds a Ruff finding (so Ruff really is in the image), the
-# container logs JSON lines (one object per line, with the request id), /metrics counts the two
-# reviews, the container does not run as root, and `docker stop` ends it with exit code 0.
+# an ESLint finding, a Python review finds a Ruff finding and a Java review a PMD finding (so Ruff,
+# PMD and Java really are in the image), the container logs JSON lines (one object per line, with the
+# request id), /metrics counts the three reviews, the container does not run as root, and `docker stop` ends it with exit code 0.
 set -euo pipefail
 
 IMAGE="${1:-code-review-backend:local}"
@@ -49,15 +49,21 @@ py="$(curl -fsS -X POST "$BASE/review" -H 'Content-Type: application/json' \
 echo "$py" | grep -q '"source":"ruff"' || fail "no Ruff finding for the Python sample (is Ruff in the image?): $py"
 echo "  Python review finds a Ruff finding"
 
+java="$(curl -fsS -X POST "$BASE/review" -H 'Content-Type: application/json' \
+  -d '{"filename":"A.java","language":"java","code":"class A {\n  boolean admin(String role) {\n    return role == \"admin\";\n  }\n}\n"}')"
+echo "$java" | grep -q '"source":"pmd"' || fail "no PMD finding for the Java sample (are PMD and Java in the image?): $java"
+echo "  Java review finds a PMD finding"
+
 logs="$(docker logs "$NAME" 2>&1)"
 [ -z "$(echo "$logs" | grep -v '^{')" ] || fail "the container logged a line that is not JSON: $(echo "$logs" | grep -v '^{' | head -3)"
 echo "$logs" | grep -q '"message":"HTTP request".*"requestId":"smoke-1"\|"requestId":"smoke-1".*"message":"HTTP request"' || fail "no JSON access-log line with the request id smoke-1"
 echo "  logs are JSON, one object per line, and carry the request id"
 
 metrics="$(curl -fsS "$BASE/metrics")"
-echo "$metrics" | grep -q '^reviews_total{outcome="completed"} 2$' || fail "/metrics did not count the two reviews: $(echo "$metrics" | grep '^reviews_total')"
-echo "$metrics" | grep -q '^http_requests_total{method="POST",route="/review",status="200"} 2$' || fail "/metrics did not count the two /review answers"
+echo "$metrics" | grep -q '^reviews_total{outcome="completed"} 3$' || fail "/metrics did not count the three reviews: $(echo "$metrics" | grep '^reviews_total')"
+echo "$metrics" | grep -q '^http_requests_total{method="POST",route="/review",status="200"} 3$' || fail "/metrics did not count the three /review answers"
 echo "$metrics" | grep -q '^analyzer_duration_seconds_count{analyzer="ruff"} 1$' || fail "/metrics did not time the Ruff run"
+echo "$metrics" | grep -q '^analyzer_duration_seconds_count{analyzer="pmd"} 1$' || fail "/metrics did not time the PMD run"
 echo "  /metrics counts the reviews"
 
 [ "$(docker exec "$NAME" id -u)" != "0" ] || fail "the container runs as root"

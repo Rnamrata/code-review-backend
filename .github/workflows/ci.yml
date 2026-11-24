@@ -50,6 +50,14 @@ jobs:
       - name: Install Ruff
         run: pip install "ruff==0.17.0"
 
+      # The runner already has Java. Keep this version in step with the Dockerfile.
+      - name: Install PMD
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/pmd.zip" https://github.com/pmd/pmd/releases/download/pmd_releases/7.29.0/pmd-dist-7.29.0-bin.zip
+          echo "d27177c185b837fa57f097e482d1253468aa035379c5eb2671fa0a279109b179  $RUNNER_TEMP/pmd.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/pmd.zip" -d "$RUNNER_TEMP"
+          echo "PMD_BIN=$RUNNER_TEMP/pmd-bin-7.29.0/bin/pmd" >> "$GITHUB_ENV"
+
       - name: Typecheck
         run: npx tsc --noEmit
 
@@ -86,7 +94,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Starts the image and checks health, a real review (ESLint and Ruff), the non-root user
+      # Starts the image and checks health, a real review (ESLint, Ruff and PMD), the non-root user
       # and a clean stop. `bash` is used so the script needs no executable bit.
       - name: Smoke test the image
         run: bash scripts/docker-smoke-test.sh code-review-backend:ci

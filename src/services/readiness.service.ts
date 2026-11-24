@@ -8,7 +8,7 @@ export interface CheckResult {
 
 export interface Readiness {
     ready: boolean;
-    checks: { ruff: CheckResult; ollama: CheckResult };
+    checks: { ruff: CheckResult; pmd: CheckResult; ollama: CheckResult };
 }
 
 function checkRuff(): Promise<CheckResult> {
@@ -19,6 +19,23 @@ function checkRuff(): Promise<CheckResult> {
                 return;
             }
             resolve({ ok: true, detail: String(stdout).trim() });
+        });
+    });
+}
+
+function checkPmd(): Promise<CheckResult> {
+    if (!appConfig.pmdEnabled) return Promise.resolve({ ok: true, detail: 'not used (PMD_ENABLED is false)' });
+
+    return new Promise((resolve) => {
+        // Java starts slowly, so this check gets more time than the others
+        execFile(appConfig.pmdBin, ['--version'], { timeout: Math.max(appConfig.readinessTimeoutMs, 10_000) }, (error, stdout) => {
+            if (error) {
+                resolve({ ok: false, detail: 'PMD is not available (it needs Java; set PMD_BIN, or PMD_ENABLED=false)' });
+                return;
+            }
+            // It prints a logo first; the version is on the line that starts with "PMD"
+            const version = String(stdout).split('\n').find((line) => /^PMD \d/.test(line.trim()));
+            resolve({ ok: true, detail: version?.trim().split(' (')[0] ?? 'PMD runs' });
         });
     });
 }
@@ -50,6 +67,6 @@ async function checkOllama(): Promise<CheckResult> {
 // Unlike /health, which only says the process is up, this checks what a review needs.
 // Neither check can throw, so the endpoint always has an answer.
 export async function checkReadiness(): Promise<Readiness> {
-    const [ruff, ollama] = await Promise.all([checkRuff(), checkOllama()]);
-    return { ready: ruff.ok && ollama.ok, checks: { ruff, ollama } };
+    const [ruff, pmd, ollama] = await Promise.all([checkRuff(), checkPmd(), checkOllama()]);
+    return { ready: ruff.ok && pmd.ok && ollama.ok, checks: { ruff, pmd, ollama } };
 }

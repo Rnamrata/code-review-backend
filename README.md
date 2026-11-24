@@ -18,6 +18,7 @@ POST /review  { filename, language, code }
       |             (own timeout each; a failure becomes a warning)
       |-- ESLint adapter   JavaScript / TypeScript
       |-- Ruff adapter     Python
+      |-- PMD adapter      Java
       |-- secret scan      keys, tokens and passwords in the code (next to the others)
       |-- LLM adapter      optional, via Ollama (off by default)
       |
@@ -99,8 +100,8 @@ Returns `{ "status": "healthy", "timestamp": "..." }`. It only says the process 
 
 ### `GET /ready`
 
-Checks what a review needs: that Ruff runs and, when `LLM_ENABLED=true`, that Ollama is
-reachable and has the configured model. It answers `200` when everything passes and `503`
+Checks what a review needs: that Ruff runs, that PMD runs (unless `PMD_ENABLED=false`) and,
+when `LLM_ENABLED=true`, that Ollama is reachable and has the configured model. It answers `200` when everything passes and `503`
 when something does not, so a container or load balancer can hold traffic back.
 
 ```json
@@ -108,6 +109,7 @@ when something does not, so a container or load balancer can hold traffic back.
   "ready": true,
   "checks": {
     "ruff": { "ok": true, "detail": "ruff 0.17.0" },
+    "pmd": { "ok": true, "detail": "PMD 7.29.0" },
     "ollama": { "ok": true, "detail": "model qwen2.5-coder:7b is installed" }
   }
 }
@@ -119,9 +121,18 @@ when something does not, so a container or load balancer can hold traffic back.
 |---|---|---|
 | JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process; also `eqeqeq` and HTML written from strings (`innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`) |
 | Python (`.py`) | Ruff | needs the `ruff` binary |
-| Java (`.java`) | LLM only, with rule cards | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
+| Java (`.java`) | PMD | needs Java and PMD (`brew install pmd` brings both); `PMD_ENABLED=false` turns it off |
 | Python, JavaScript, TypeScript, Java | LLM (optional), with rule cards | a second opinion next to the linters |
 | Python, JavaScript, TypeScript, Java | secret scan | runs next to another analyzer, never alone |
+
+**PMD.** Reads the source, so one file is enough and nothing is compiled. It runs 19 rules picked
+for problems that matter in a review: resources left open, strings compared with `==`, empty catch
+blocks and `printStackTrace()`, lost stack traces, null checks in the wrong place, `equals` without
+`hashCode`, fall-through in `switch`, `return` inside `finally`, a shared static `SimpleDateFormat`, double-checked locking,
+`+=` on a String in a loop, hard-coded crypto keys and fixed IVs, and unused private fields, methods
+and variables. The code is written to a private temporary folder that is removed after the run, and
+it cannot hide findings with `// NOPMD` or `@SuppressWarnings("PMD")`. A file PMD cannot parse gives
+one "Java syntax error" finding on its line.
 
 **Secret scan.** Finds keys in a provider's own format (Stripe, AWS, GitHub, Slack, Google, OpenAI and
 Anthropic keys, private keys, JSON Web Tokens, passwords in connection URLs) and names such as
@@ -134,8 +145,9 @@ extension is used.
 
 ## Getting started
 
-Requirements: **Node 20.19+** and, for Python analysis, **Ruff**
-(`brew install ruff` or `pip install ruff`).
+Requirements: **Node 20.19+**; for Python analysis, **Ruff** (`brew install ruff` or `pip install ruff`);
+for Java analysis, **PMD**, which needs Java (`brew install pmd` installs both).
+Without PMD, set `PMD_ENABLED=false`: Java reviews then get only the secret scan and the AI reviewer.
 
 ```bash
 npm install
@@ -338,6 +350,9 @@ Set in `.env` (see `.env.example`):
 | `CORS_ORIGIN` | empty | browser origins allowed to call the service (comma separated). Empty allows none, which is right when only another server calls it; `*` is refused in production |
 | `RUFF_BIN` | `ruff` | path to the Ruff binary |
 | `RUFF_TIMEOUT_MS` | `15000` | Ruff run limit |
+| `PMD_ENABLED` | `true` | run PMD on Java files; `false` where Java isn't installed |
+| `PMD_BIN` | `pmd` | path to the PMD launcher (`bin/pmd` in the PMD download) |
+| `PMD_TIMEOUT_MS` | `30000` | PMD run limit (Java starts slowly) |
 | `LLM_ENABLED` | `false` | turn the LLM analyzer on |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | where Ollama is running |
 | `LLM_MODEL` | `qwen2.5-coder:7b` | model used for reviews |

@@ -60,6 +60,12 @@ export const appConfig = {
   ruffBin: getEnvString('RUFF_BIN', 'ruff'),
   ruffTimeoutMs: getEnvNumber('RUFF_TIMEOUT_MS', 15000),
 
+  // PMD, the Java linter. It needs Java; PMD_ENABLED=false turns it off where there is none.
+  pmdEnabled: getEnvBoolean('PMD_ENABLED', true),
+  pmdBin: getEnvString('PMD_BIN', 'pmd'),
+  // 30 s: Java starts slowly, and the first run after a while takes a few seconds
+  pmdTimeoutMs: getEnvNumber('PMD_TIMEOUT_MS', 30000),
+
   // Complexity Thresholds
   cyclomaticComplexityThreshold: getEnvNumber('CYCLOMATIC_COMPLEXITY_THRESHOLD', 5),
   cognitiveComplexityThreshold: getEnvNumber('COGNITIVE_COMPLEXITY_THRESHOLD', 7),

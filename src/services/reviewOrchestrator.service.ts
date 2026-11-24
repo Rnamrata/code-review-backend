@@ -7,11 +7,12 @@ import { buildSummary } from './reviewSummary.service';
 import { withWhy } from './why/whyMatcher';
 import { eslintAdapter } from './adapters/eslint.adapter';
 import { ruffAdapter } from './adapters/ruff.adapter';
+import { pmdAdapter } from './adapters/pmd.adapter';
 import { llmAdapter } from './adapters/llm.adapter';
 import { secretsAdapter } from './adapters/secrets.adapter';
 
 // Every analyzer that supports the language runs, in parallel.
-const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter, secretsAdapter, llmAdapter];
+const analyzers: Analyzer[] = [eslintAdapter, ruffAdapter, pmdAdapter, secretsAdapter, llmAdapter];
 
 // Used by any analyzer that does not declare its own `timeoutMs`.
 // The linters finish in well under a second; the AI reviewer sets its own, longer limit.

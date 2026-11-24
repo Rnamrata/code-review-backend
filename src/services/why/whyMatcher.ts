@@ -106,6 +106,22 @@ const TOPICS: [RegExp, string][] = [
     [/\bunused\b|never used/i, 'unused-code']
 ];
 
+const PMD_RULES: Record<string, string> = {
+    HardCodedCryptoKey: 'hardcoded-secret',
+    UseEqualsToCompareStrings: 'string-equality',
+    MisplacedNullCheck: 'null-before-check',
+    BrokenNullCheck: 'null-before-check',
+    OverrideBothEqualsAndHashcode: 'equals-hashcode',
+    UnsynchronizedStaticFormatter: 'shared-mutable-static',
+    CloseResource: 'unclosed-resource',
+    EmptyCatchBlock: 'swallowed-exception',
+    AvoidPrintStackTrace: 'swallowed-exception',
+    UseStringBufferForStringAppends: 'string-concat-loop',
+    UnusedPrivateField: 'unused-code',
+    UnusedPrivateMethod: 'unused-code',
+    UnusedLocalVariable: 'unused-code'
+};
+
 const LANGS: Record<string, Lang> = { python: 'python', java: 'java', javascript: 'javascript', typescript: 'typescript' };
 
 /** The rule a linter finding names at the end of its message: "(S608)" → S608. */
@@ -119,6 +135,8 @@ function cardIdFor(finding: Finding, lang: Lang | undefined): string | undefined
             return RUFF_RULES[ruleOf(finding.message) ?? ''];
         case 'eslint':
             return ESLINT_RULES[ruleOf(finding.message) ?? ''];
+        case 'pmd':
+            return PMD_RULES[ruleOf(finding.message) ?? ''];
         default: {
             const text = finding.message;
             for (const [pattern, id] of TOPICS) {

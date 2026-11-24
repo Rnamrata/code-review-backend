@@ -1,6 +1,6 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-export type FindingSource = 'eslint' | 'ruff' | 'llm' | 'secrets';
+export type FindingSource = 'eslint' | 'ruff' | 'pmd' | 'llm' | 'secrets';
 
 /** Why a finding matters and where the advice comes from (see services/why). */
 export interface Why {
