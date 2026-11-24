@@ -165,7 +165,7 @@ describe('the PMD adapter', () => {
   });
 
   it.each([
-    ['PMD is not installed', { error: Object.assign(new Error('spawn pmd ENOENT'), { code: 'ENOENT' }) }, /PMD not found at "pmd"/],
+    ['PMD is not installed', { error: Object.assign(new Error('spawn pmd ENOENT'), { code: 'ENOENT' }) }, `PMD not found at "${appConfig.pmdBin}"`],
     ['PMD itself fails', { code: 1, stderr: 'Exception in thread "main"' }, /PMD failed \(exit 1\): Exception in thread/],
     ['PMD is stopped', { code: null, signal: 'SIGTERM' as NodeJS.Signals }, /PMD was stopped \(SIGTERM\)/],
     ['PMD prints something that is not JSON', { code: 0, stdout: 'not json', stderr: 'oops' }, /PMD returned invalid JSON: oops/],
