@@ -44,7 +44,15 @@ describe('whyFor: linter rules', () => {
     ['typescript', 'eslint', "Expected '===' and instead saw '=='. (eqeqeq)", 'loose-equality'],
     ['typescript', 'eslint', 'HTML is set from a string with innerHTML or outerHTML (XSS). (no-restricted-syntax)', 'xss-html'],
     ['typescript', 'eslint', 'Unexpected any. Specify a different type. (@typescript-eslint/no-explicit-any)', 'any-type'],
-    ['javascript', 'eslint', 'Unexpected var, use let or const instead. (no-var)', 'var-declaration']
+    ['javascript', 'eslint', 'Unexpected var, use let or const instead. (no-var)', 'var-declaration'],
+    ['java', 'pmd', "Ensure that resources like this 'Connection' object are closed after use (CloseResource)", 'unclosed-resource'],
+    ['java', 'pmd', "Use equals() to compare strings instead of '==' or '!=' (UseEqualsToCompareStrings)", 'string-equality'],
+    ['java', 'pmd', 'Avoid empty catch blocks (EmptyCatchBlock)', 'swallowed-exception'],
+    ['java', 'pmd', 'Avoid printStackTrace(); use a logger call instead. (AvoidPrintStackTrace)', 'swallowed-exception'],
+    ['java', 'pmd', 'Static DateFormatter objects should be accessed in a synchronized manner (UnsynchronizedStaticFormatter)', 'shared-mutable-static'],
+    ['java', 'pmd', 'Ensure you override both equals() and hashCode() (OverrideBothEqualsAndHashcode)', 'equals-hashcode'],
+    ['java', 'pmd', 'Do not use hard coded encryption keys (HardCodedCryptoKey)', 'hardcoded-secret'],
+    ["java", 'pmd', "Avoid unused private fields such as 'cache'. (UnusedPrivateField)", 'unused-code']
   ] as const)('%s %s: %s', (language, source, message, id) => {
     expect(cardFor(language, { source, message })).toBe(id);
   });
@@ -56,6 +64,7 @@ describe('whyFor: linter rules', () => {
   it('gives a linter rule with no card none', () => {
     expect(cardFor('python', { source: 'ruff', message: 'Line too long (E501)' })).toBeNull();
     expect(cardFor('python', { source: 'ruff', message: 'No rule code here' })).toBeNull();
+    expect(cardFor('java', { source: 'pmd', message: 'Do not use a hard coded IV (InsecureCryptoIv)' })).toBeNull();
   });
 });
 

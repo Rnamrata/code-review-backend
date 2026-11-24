@@ -19,6 +19,7 @@ POST /review  { filename, language, code }
         |             (per-analyzer timeout, failures become warnings)
         |-- eslint adapter   (JS / TS)
         |-- ruff adapter     (Python)
+        |-- pmd adapter      (Java)
         |-- llm adapter      (Ollama, optional)
         |
    findingsMerger    merge across analyzers only (same-source findings are kept),
@@ -54,10 +55,11 @@ POST /review  { filename, language, code }
 | Summary builder | Done | `src/services/reviewSummary.service.ts` |
 | ESLint adapter (JS/TS, with security plugin) | Done | `src/services/adapters/eslint.adapter.ts` |
 | Ruff adapter (Python; isolated config, `noqa` ignored, per-run timeout) | Done | `src/services/adapters/ruff.adapter.ts` |
+| PMD adapter (Java; 19 chosen rules, private temp file removed after each run, `NOPMD` and `@SuppressWarnings` cannot hide findings, a parse failure becomes one syntax-error finding; `PMD_ENABLED`, in `/ready`, in the Docker image with a Java runtime, installed in CI) | Done | `src/services/adapters/pmd.adapter.ts` |
 | Config and env handling, logging | Done | `src/config/`, `src/utils/logger.util.ts` |
-| GitHub Actions CI (Node 20 and 22; pinned Ruff install; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
+| GitHub Actions CI (Node 20 and 22; pinned Ruff and PMD installs; typecheck, build, test, audit) | Done | `.github/workflows/ci.yml` |
 | Express `app` separated from the listener, so tests can import it | Done | `src/app.ts`, `src/server.ts` |
-| Vitest suite: 1,295 tests in 35 files (unit, adapter, orchestrator, route and end-to-end) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
+| Vitest suite: 1,318 tests in 37 files (unit, adapter, orchestrator, route and end-to-end; 2 run only where PMD is installed) | Done | `src/**/*.spec.ts`, `vitest.config.mts` |
 | README and design notes (`planning-docs/`) match the current design | Done | `README.md`, `planning-docs/` |
 | Analyzer hardening: sync throws become warnings, per-analyzer `timeoutMs`, abort signal (Ruff process is killed on timeout), `isSeverity` | Done | `src/services/reviewOrchestrator.service.ts`, `src/models/`, adapters |
 | Request IDs (`X-Request-Id` in and out) and per-analyzer / per-review timing logs | Done | `src/controllers/review.controller.ts`, `src/utils/logger.util.ts` |
@@ -81,13 +83,13 @@ POST /review  { filename, language, code }
 | OpenAPI contract test: every example in `openapi.yaml` must fit its schema, the enums must match the code, and real responses and headers of the service must match the spec | Done | `src/openapi.contract.spec.ts` |
 | Clean-up: every answer from `/review` carries `X-Request-Id`, even for a body that is not valid JSON or too large (the request id is attached before the body parser); the three unused logger helpers are removed; the log folder is only created when log files are written, so the Docker image needs no workaround; test output has no dotenv banners, listener warnings or expected-error blocks | Done | `src/app.ts`, `src/utils/logger.util.ts`, `vitest.setup.ts` |
 | Structured logs and metrics: `LOG_FORMAT=json` prints one flat JSON object per line (ISO timestamps, `requestId` on every line of a review, a numeric `durationMs`), one access-log line per answer replaces morgan (probes at debug level, no query string, no body), the error handler logs the request id, and `GET /metrics` serves Prometheus metrics (`http_requests_total`, `reviews_total`, `review_duration_seconds`, `analyzer_duration_seconds`, `analyzer_failures_total` by `timeout`/`error`, `findings_total`, `rate_limited_total`, and Node's own numbers). The old and the new build gave identical answers to 15 different requests, and the Docker smoke test checks the JSON logs and the counters | Done | `src/utils/logger.util.ts`, `src/services/metrics.service.ts`, `src/middlewares/accessLog.middleware.ts`, `src/middlewares/metrics.middleware.ts` |
-| Docker image (Node 22, Ruff pinned, non-root, read-only filesystem, health check on `/ready`), `docker-compose.yml`, and a CI job that builds the image and smoke-tests it; a stop with a review running waits for it (60 s grace period) | Done | `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke-test.sh`, `.github/workflows/ci.yml` |
+| Docker image (Node 22, Ruff pinned, PMD pinned with a Java 21 runtime, non-root, read-only filesystem, health check on `/ready`), `docker-compose.yml`, and a CI job that builds the image and smoke-tests it; a stop with a review running waits for it (60 s grace period) | Done | `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke-test.sh`, `.github/workflows/ci.yml` |
 | Image publishing to the GitHub container registry (`ghcr.io/rnamrata/code-review-backend`, amd64 and arm64): `edge` and `sha-...` from `master`, `X.Y.Z`, `X.Y` and `latest` from a `vX.Y.Z` tag that must match `package.json`; the build cache is shared with the tested build, the published image is smoke-tested by digest, and a later push never cancels a publish (only pull-request runs are cancelled) | Done | `.github/workflows/ci.yml`, `README.md` |
-| Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
+| Hardening: rate limiting on `/review` (429 with `Retry-After`, refusals logged), CORS off unless `CORS_ORIGIN` is set and `*` refused in production, request body limit follows `MAX_FILE_SIZE_MB`, graceful shutdown (running reviews finish first), `GET /ready` checks Ruff, PMD and Ollama, startup failures exit with code 1 | Done | `src/middlewares/`, `src/shutdown.ts`, `src/services/readiness.service.ts`, `src/server.ts` |
 
 ### In progress
 
-Nothing active. Phases A to D and F are done, and Phase E has started (the secret scan, rule cards for every language, the "why" cards). Next: the coverage report, and a Java linter (PMD or SpotBugs) for what the model keeps missing in Java.
+Nothing active. Phases A to D and F are done, and Phase E has started (the secret scan, rule cards for every language, the "why" cards, PMD for Java). Next: the coverage report, and complexity findings.
 
 ### Known gaps
 
@@ -108,12 +110,12 @@ Nothing active. Phases A to D and F are done, and Phase E has started (the secre
 - Config keys with no consumer yet: the three complexity thresholds (planned for Phase E).
 - Rate limits count requests by client address, in memory. The chatbot sends every user's reviews from one address, so they all share one counter: the default of 100 reviews per 15 minutes is for the whole chatbot, so raise `RATE_LIMIT_MAX_REQUESTS` if that is too tight. Behind a reverse proxy every client would appear with the proxy's address (a trust-proxy setting would be needed), and several instances would each count on their own.
 - The logger catches uncaught exceptions and keeps the process running (`exitOnError: false`). Startup failures now exit with code 1, but a runtime uncaught exception is only logged.
-- `GET /ready` answers 503 when Ruff is missing, although JavaScript reviews would still work.
+- `GET /ready` answers 503 when Ruff or PMD is missing, although reviews in the other languages would still work. Where Java isn't installed, set `PMD_ENABLED=false`.
 - The published image (`ghcr.io/rnamrata/code-review-backend`) is not signed, and `edge` and `latest` move, so use a version tag or a digest in production. A package made by CI starts private: after the first publish, set its visibility to public in the GitHub package settings (once). The arm64 half is built under emulation, so it is only exercised on pushes to `master` and tags, not on pull requests; a native arm64 runner for the smoke test would close that gap.
 - Metrics are kept in memory: they start from zero on a restart, and each instance counts on its own (a scraper adds them up). `GET /metrics` has no key, like `/health`, so the service must stay on an internal network. Nothing scrapes it yet, and there are no dashboards or alerts.
 - `prom-client` (15.1.3, the metrics library) is deprecated in favour of the Prometheus project's own `@prometheus-io/client`. That package needs Node 22 or newer, so it cannot be used while Node 20 is supported. Switching is one import line (all tests pass with it); do it when Node 20 is dropped.
 - The `route` label of the http metrics is one of `/review`, `/health`, `/ready`, `/metrics` or `unmatched`. A request for any other path is counted under `unmatched`, so a scanner cannot create thousands of time series; the price is that the path itself is not visible in the metrics (the access log has it).
-- The Ruff version is pinned in two places, the `Dockerfile` and the CI workflow, and the two must be changed together.
+- The Ruff and PMD versions are pinned in two places, the `Dockerfile` and the CI workflow, and must be changed together (for PMD, the SHA-256 too).
 - Docker's default stop timeout (10 s) cuts a slow review off. The compose file sets 110 s; with plain `docker run`, use `--stop-timeout 110` or `docker stop -t 110`.
 - The contract test (`src/openapi.contract.spec.ts`) does not check the `format` of values such as `date-time`, nor the exact wording of messages.
 - Two behaviours are untested end to end: a hung Ruff run (timeout kill), and ESLint on very large inputs, which cannot be aborted.
@@ -224,7 +226,8 @@ Still open in this area: more real-world samples (the Java files measured so far
 
 ### Phase E - Broader language and rule coverage
 
-- [ ] Decide per language (Java now has the LLM only; C/C++, C# have nothing): add an adapter (for example Checkstyle/PMD, cppcheck) or remove it from `fileTypes.ts` and the extension allow-list so the config matches reality.
+- [x] A linter for Java: PMD (SpotBugs needs compiled classes, which one uploaded file can't give).
+- [ ] Decide for C/C++ and C#, which have nothing: add an adapter (for example cppcheck) or remove them from `fileTypes.ts` and the extension allow-list so the config matches reality.
 - [ ] Add complexity findings (ESLint `complexity`, Ruff `C901`) with configurable thresholds.
 - [x] Secret scan for every reviewed language (Step 3).
 - [x] Rule cards for Python and JavaScript/TypeScript, and logic-bug cards for Java (Step 3).
@@ -276,5 +279,5 @@ Revisit only if the chatbot needs the service to hold state or to produce scored
 | B | Tests and meaningful CI | Done |
 | C | Hardening | Done (rate limiting, CORS, body limit, graceful shutdown, `/ready`, request IDs, schema validation, error logging) |
 | D | LLM analyzer (Ollama) | Done (opt-in; Java rule cards, measured on 12 Java files) |
-| E | Language and rule coverage | Started (secret scan, rule cards for every language, "why" cards; Java linter and complexity still to do) |
+| E | Language and rule coverage | Started (secret scan, rule cards for every language, "why" cards, PMD for Java; complexity still to do) |
 | F | Operations and docs | Done (readiness check, OpenAPI spec, Docker, structured logs and metrics, image publishing) |

@@ -141,7 +141,7 @@ describe('openapi.yaml: its enums match the code', () => {
   });
 
   it('lists the analyzers that produce findings', () => {
-    expect(spec.components.schemas.FindingSource.enum).toEqual(['eslint', 'ruff', 'secrets', 'llm']);
+    expect(spec.components.schemas.FindingSource.enum).toEqual(['eslint', 'ruff', 'pmd', 'secrets', 'llm']);
   });
 
   it('lets a warning come from the orchestrator as well', () => {

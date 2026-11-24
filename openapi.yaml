@@ -6,7 +6,7 @@ info:
   description: |
     A small, stateless HTTP service. A client sends the code of one file; the service runs every
     analyzer that supports its language (ESLint for JavaScript and TypeScript, Ruff for Python,
-    and optionally a local model through Ollama), merges what they find and returns one list of
+    PMD for Java, and optionally a local model through Ollama), merges what they find and returns one list of
     findings. Submitted code is never executed or stored.
 
     **Partial results beat failures.** If one analyzer fails or times out, the review still
@@ -244,9 +244,9 @@ paths:
       operationId: getReadiness
       summary: Readiness check
       description: |
-        Checks what a review needs: that Ruff runs and, when `LLM_ENABLED=true`, that Ollama is
-        reachable and has the configured model. Answers `200` when every check passes and `503`
-        when one does not, so a container or load balancer can hold traffic back.
+        Checks what a review needs: that Ruff runs, that PMD runs (unless `PMD_ENABLED=false`) and,
+        when `LLM_ENABLED=true`, that Ollama is reachable and has the configured model. Answers
+        `200` when every check passes and `503` when one does not, so a container or load balancer can hold traffic back.
       responses:
         '200':
           description: Every check passed.
@@ -258,6 +258,7 @@ paths:
                 ready: true
                 checks:
                   ruff: { ok: true, detail: 'ruff 0.17.0' }
+                  pmd: { ok: true, detail: 'PMD 7.29.0' }
                   ollama: { ok: true, detail: 'model qwen2.5-coder:7b is installed' }
         '503':
           description: At least one check failed. `checks` says which.
@@ -269,6 +270,7 @@ paths:
                 ready: false
                 checks:
                   ruff: { ok: true, detail: 'ruff 0.17.0' }
+                  pmd: { ok: true, detail: 'PMD 7.29.0' }
                   ollama: { ok: false, detail: 'Ollama is unreachable' }
 
   /metrics:
@@ -361,7 +363,7 @@ components:
 
     FindingSource:
       type: string
-      enum: [eslint, ruff, secrets, llm]
+      enum: [eslint, ruff, pmd, secrets, llm]
       description: '`secrets` is the scan for keys, tokens and passwords written into the code. It runs next to the other analyzers for Python, JavaScript, TypeScript and Java, never on its own.'
 
     Finding:
@@ -528,9 +530,11 @@ components:
           type: boolean
         checks:
           type: object
-          required: [ruff, ollama]
+          required: [ruff, pmd, ollama]
           properties:
             ruff:
+              $ref: '#/components/schemas/CheckResult'
+            pmd:
               $ref: '#/components/schemas/CheckResult'
             ollama:
               $ref: '#/components/schemas/CheckResult'

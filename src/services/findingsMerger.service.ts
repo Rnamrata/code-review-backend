@@ -4,6 +4,7 @@ import { Finding, SEVERITY_ORDER } from '../models/finding';
 const SOURCE_PRIORITY: Record<string, number> = {
     eslint: 0,
     ruff: 0,
+    pmd: 0,
     secrets: 0,
     llm: 1
 };
@@ -25,7 +26,9 @@ const TOPICS: RegExp[] = [
     /\btimeouts?\b/i,
     /\bmutable\b/i,
     /\bnull\b|\bnone\b/i,
-    /\brandom\b/i
+    /\brandom\b/i,
+    /\bclosed?\b|\bresources?\b|\bleak/i,
+    /\bequals\b/i
 ];
 
 const sameTopic = (a: Finding, b: Finding): boolean =>

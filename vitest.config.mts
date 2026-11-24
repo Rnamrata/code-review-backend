@@ -11,6 +11,7 @@ export default defineConfig({
       LOG_TO_FILE: 'false',       // tests must not write into ./logs
       LOG_LEVEL: 'error',          // keep test output readable
       LLM_ENABLED: 'false',        // tests must never call a real Ollama
+      PMD_ENABLED: 'false',        // nor need Java: the PMD tests turn it on themselves
       RATE_LIMIT_MAX_REQUESTS: '100000' // the suite sends hundreds of requests; the limiter has its own tests
     }
   }

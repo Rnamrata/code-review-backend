@@ -18,6 +18,7 @@ POST /review  { filename, language, code }
       |             (own timeout each; a failure becomes a warning)
       |-- ESLint adapter   JavaScript / TypeScript
       |-- Ruff adapter     Python
+      |-- PMD adapter      Java
       |-- secret scan      keys, tokens and passwords in the code (next to the others)
       |-- LLM adapter      optional, via Ollama (off by default)
       |
@@ -26,7 +27,7 @@ POST /review  { filename, language, code }
   { findings, warnings, summary }
 ```
 
-Analysis comes from real tools (ESLint, Ruff) and, when enabled, a local model
+Analysis comes from real tools (ESLint, Ruff, PMD) and, when enabled, a local model
 through Ollama; the service only translates their output into one `Finding` shape. Submitted code is never executed or saved.
 
 ## API
@@ -99,8 +100,8 @@ Returns `{ "status": "healthy", "timestamp": "..." }`. It only says the process 
 
 ### `GET /ready`
 
-Checks what a review needs: that Ruff runs and, when `LLM_ENABLED=true`, that Ollama is
-reachable and has the configured model. It answers `200` when everything passes and `503`
+Checks what a review needs: that Ruff runs, that PMD runs (unless `PMD_ENABLED=false`) and,
+when `LLM_ENABLED=true`, that Ollama is reachable and has the configured model. It answers `200` when everything passes and `503`
 when something does not, so a container or load balancer can hold traffic back.
 
 ```json
@@ -108,6 +109,7 @@ when something does not, so a container or load balancer can hold traffic back.
   "ready": true,
   "checks": {
     "ruff": { "ok": true, "detail": "ruff 0.17.0" },
+    "pmd": { "ok": true, "detail": "PMD 7.29.0" },
     "ollama": { "ok": true, "detail": "model qwen2.5-coder:7b is installed" }
   }
 }
@@ -119,9 +121,18 @@ when something does not, so a container or load balancer can hold traffic back.
 |---|---|---|
 | JavaScript, TypeScript (`.js .jsx .ts .tsx`) | ESLint + security plugin | runs in-process; also `eqeqeq` and HTML written from strings (`innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`) |
 | Python (`.py`) | Ruff | needs the `ruff` binary |
-| Java (`.java`) | LLM only, with rule cards | needs `LLM_ENABLED=true`; otherwise the review returns a warning |
+| Java (`.java`) | PMD | needs Java and PMD (`brew install pmd` brings both); `PMD_ENABLED=false` turns it off |
 | Python, JavaScript, TypeScript, Java | LLM (optional), with rule cards | a second opinion next to the linters |
 | Python, JavaScript, TypeScript, Java | secret scan | runs next to another analyzer, never alone |
+
+**PMD.** Reads the source, so one file is enough and nothing is compiled. It runs 19 rules picked
+for problems that matter in a review: resources left open, strings compared with `==`, empty catch
+blocks and `printStackTrace()`, lost stack traces, null checks in the wrong place, `equals` without
+`hashCode`, fall-through in `switch`, `return` inside `finally`, a shared static `SimpleDateFormat`, double-checked locking,
+`+=` on a String in a loop, hard-coded crypto keys and fixed IVs, and unused private fields, methods
+and variables. The code is written to a private temporary folder that is removed after the run, and
+it cannot hide findings with `// NOPMD` or `@SuppressWarnings("PMD")`. A file PMD cannot parse gives
+one "Java syntax error" finding on its line.
 
 **Secret scan.** Finds keys in a provider's own format (Stripe, AWS, GitHub, Slack, Google, OpenAI and
 Anthropic keys, private keys, JSON Web Tokens, passwords in connection URLs) and names such as
@@ -134,8 +145,9 @@ extension is used.
 
 ## Getting started
 
-Requirements: **Node 20.19+** and, for Python analysis, **Ruff**
-(`brew install ruff` or `pip install ruff`).
+Requirements: **Node 20.19+**; for Python analysis, **Ruff** (`brew install ruff` or `pip install ruff`);
+for Java analysis, **PMD**, which needs Java (`brew install pmd` installs both).
+Without PMD, set `PMD_ENABLED=false`: Java reviews then get only the secret scan and the AI reviewer.
 
 ```bash
 npm install
@@ -188,7 +200,8 @@ sum(rate(analyzer_failures_total{reason="timeout"}[5m])) by (analyzer)
 
 ## Docker
 
-The image bundles Node, the compiled service and Ruff (pinned to 0.17.0). It runs as a normal
+The image bundles Node, the compiled service, Ruff (pinned to 0.17.0), and PMD (pinned to 7.29.0)
+with a Java 21 runtime. It runs as a normal
 user, on a read-only filesystem, and logs JSON lines to the console.
 
 ```bash
@@ -199,12 +212,12 @@ docker run --rm -p 4000:4000 --stop-timeout 60 code-review-backend
 Or with Docker Compose, which also sets the stop timeout, the read-only filesystem and the defaults:
 
 ```bash
-docker compose up --build                     # ESLint, Ruff and the secret scan
+docker compose up --build                     # ESLint, Ruff, PMD and the secret scan
 REVIEW_LLM_ENABLED=true docker compose up --build    # also asks Ollama running on your machine
 ```
 
 The service is then at `http://localhost:4000` (set `REVIEW_PORT` for another port). `docker ps`
-shows `healthy` once `GET /ready` passes: Ruff runs and, when the LLM is on, Ollama has the model.
+shows `healthy` once `GET /ready` passes: Ruff and PMD run and, when the LLM is on, Ollama has the model.
 
 - **Ollama stays on your machine.** From a container the host is `host.docker.internal`, which is
   the default `OLLAMA_BASE_URL` in the compose file. On a Mac this keeps the model on the GPU:
@@ -338,6 +351,9 @@ Set in `.env` (see `.env.example`):
 | `CORS_ORIGIN` | empty | browser origins allowed to call the service (comma separated). Empty allows none, which is right when only another server calls it; `*` is refused in production |
 | `RUFF_BIN` | `ruff` | path to the Ruff binary |
 | `RUFF_TIMEOUT_MS` | `15000` | Ruff run limit |
+| `PMD_ENABLED` | `true` | run PMD on Java files; `false` where Java isn't installed |
+| `PMD_BIN` | `pmd` | path to the PMD launcher (`bin/pmd` in the PMD download) |
+| `PMD_TIMEOUT_MS` | `30000` | PMD run limit (Java starts slowly) |
 | `LLM_ENABLED` | `false` | turn the LLM analyzer on |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | where Ollama is running |
 | `LLM_MODEL` | `qwen2.5-coder:7b` | model used for reviews |
@@ -366,7 +382,7 @@ src/
   schemas/       what a request to /review must look like (zod)
   routes/        route wiring
   services/
-    adapters/    one file per analyzer (ESLint, Ruff, secrets, LLM) and the LLM's rule cards
+    adapters/    one file per analyzer (ESLint, Ruff, PMD, secrets, LLM) and the LLM's rule cards
     why/         the "why" cards and which finding gets which
     reviewOrchestrator.service.ts
     findingsMerger.service.ts
@@ -396,5 +412,5 @@ image and smoke-tests it (`scripts/docker-smoke-test.sh`). A third job publishes
 
 ## Status
 
-ESLint, Ruff, the secret scan and the optional LLM analyzer are working, with a test suite and CI.
+ESLint, Ruff, PMD, the secret scan and the optional LLM analyzer are working, with a test suite and CI.
 Rate limiting, CORS, graceful shutdown and a readiness check are in place. Logs are JSON lines with a request id, and `GET /metrics` serves Prometheus metrics. The API contract is in [`openapi.yaml`](openapi.yaml). A Docker image and a compose file are included. See [roadmap.md](roadmap.md).

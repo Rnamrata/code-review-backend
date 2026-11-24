@@ -377,6 +377,28 @@ describe('mergeFindings', () => {
     });
   });
 
+  describe('PMD, the Java linter', () => {
+    it("is a linter: its wording, line and severity win over the model's", () => {
+      const [merged, ...rest] = mergeFindings([
+        [finding({ source: 'llm', line: 13, severity: 'high', category: 'performance', message: 'The database connection is never closed' })],
+        [finding({ source: 'pmd', line: 12, severity: 'medium', category: 'reliability', message: "Ensure that resources like this 'Connection' object are closed after use (CloseResource)" })]
+      ]);
+
+      expect(rest).toEqual([]);
+      expect(merged).toMatchObject({ source: 'pmd', line: 12, severity: 'medium' });
+    });
+
+    it('meets the model on "equals" when the two file it under different categories', () => {
+      const merged = mergeFindings([
+        [finding({ source: 'pmd', line: 20, category: 'bug', message: "Use equals() to compare strings instead of '==' or '!=' (UseEqualsToCompareStrings)" })],
+        [finding({ source: 'llm', line: 20, category: 'maintainability', message: 'Strings compared with == instead of equals()' })]
+      ]);
+
+      expect(merged).toHaveLength(1);
+      expect(merged[0].source).toBe('pmd');
+    });
+  });
+
   describe('findings that look similar but are not the same issue', () => {
     it('keeps different categories on the same line apart', () => {
       const result = mergeFindings([

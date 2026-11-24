@@ -1,6 +1,6 @@
 # Runs the review service in a container.
 #
-#   docker compose up --build                            linters only (ESLint and Ruff)
+#   docker compose up --build                            linters only (ESLint, Ruff and PMD)
 #   REVIEW_LLM_ENABLED=true docker compose up --build    also asks Ollama running on your machine
 #
 # The settings below have their own REVIEW_ names on purpose. Docker Compose reads a .env file in
