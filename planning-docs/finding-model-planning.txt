@@ -6,7 +6,7 @@ Replaces the v1 "Issue" model (still on branch archive/v1-node-primary).
 What a finding is
 -----------------
 One problem found at one place in the submitted code, reported by one
-analyzer (ESLint, Ruff, or later the LLM). Every analyzer returns the same
+analyzer (ESLint, Ruff, PMD, the secret scan or the LLM). Every analyzer returns the same
 shape, so the merger, the summary and the chatbot never care where a finding
 came from.
 
@@ -20,10 +20,13 @@ Required (the chatbot reads exactly these four):
 - severity    critical | high | medium | low | info
 
 Optional:
-- category    security | bug | maintainability (style, performance reserved).
+- category    security | bug | reliability | maintainability | performance.
               Used by the merger to decide whether two findings are the same.
-- source      eslint | ruff | llm. Drives merge priority and the summary.
-- suggestion  how to fix it. Ruff fills it from its fix message.
+- source      eslint | ruff | pmd | secrets | llm. Drives merge priority and the
+              summary: the linters and the secret scan win ties over the LLM.
+- suggestion  how to fix it. Ruff fills it from its fix message, the LLM writes its own.
+- why         the finding's "why" card (id, title, reason, fix, source, url), added
+              after merging when a card fits (src/services/why).
 
 Ordering
 --------
